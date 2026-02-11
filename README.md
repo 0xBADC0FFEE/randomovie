@@ -29,15 +29,21 @@ Opens at `http://localhost:5173` with colored placeholder tiles (no real posters
 ### 1. Generate embeddings
 
 ```bash
+# Install Ollama (https://ollama.com) and pull the embedding model
+ollama pull nomic-embed-text-v2-moe
+
+# Set up Python env
 python -m venv .venv
 source .venv/bin/activate
-pip install datasets numpy umap-learn
+pip install kagglehub pandas numpy umap-learn requests
+
+# Requires Kaggle API key in ~/.kaggle/kaggle.json
 python scripts/pipeline.py
 ```
 
-This downloads ~680k movies from HuggingFace, filters to ~80k, runs UMAP dimensionality reduction, and outputs `public/data/embeddings.bin` (~4 MB) and `public/data/titles.bin` (~1 MB).
+This downloads ~1M movies from Kaggle ([alanvourch/tmdb-movies-daily-updates](https://www.kaggle.com/datasets/alanvourch/tmdb-movies-daily-updates)), filters to ~80k, generates 768-dim embeddings via Ollama, runs UMAP to 16-dim, and outputs `public/data/embeddings.bin` (~4 MB) and `public/data/titles.bin` (~1 MB).
 
-Takes a while on first run (dataset download + UMAP). Subsequent runs are faster if the dataset is cached.
+First run takes a while (embedding generation + UMAP). Subsequent runs are fast — embeddings are cached in `scripts/embedding_cache.npz`.
 
 ### 2. Run the app
 
@@ -75,7 +81,7 @@ src/
   data/
     poster-cache.ts      — LRU image cache, adaptive LOD (400 entries)
 scripts/
-  pipeline.py            — HuggingFace → UMAP → quantize → .bin
+  pipeline.py            — Kaggle → Ollama embeddings → UMAP → quantize → .bin
 ```
 
 ## Tech
@@ -84,7 +90,8 @@ scripts/
 - HTML5 Canvas 2D (no WebGL, no framework)
 - Dynamic zoom limit — max ~78 visible posters to prevent rendering lag
 - Posters from TMDB CDN (`image.tmdb.org`)
-- Movie embeddings: [Remsky/Embeddings__Ultimate_1Million_Movies_Dataset](https://huggingface.co/datasets/Remsky/Embeddings__Ultimate_1Million_Movies_Dataset)
+- Movie dataset: [alanvourch/tmdb-movies-daily-updates](https://www.kaggle.com/datasets/alanvourch/tmdb-movies-daily-updates) (updated daily)
+- Embeddings: generated locally via [Ollama](https://ollama.com) + `nomic-embed-text-v2-moe`
 
 ## License
 

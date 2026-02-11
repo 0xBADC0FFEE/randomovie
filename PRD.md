@@ -43,7 +43,7 @@ PWA. Works on any phone or desktop browser. Installable to home screen.
 - Vanilla TypeScript + Vite (no framework)
 - HTML5 Canvas 2D rendering
 - TMDB for posters and metadata
-- HuggingFace dataset for precomputed embeddings
+- Kaggle dataset ([alanvourch/tmdb-movies-daily-updates](https://www.kaggle.com/datasets/alanvourch/tmdb-movies-daily-updates)) + Ollama embeddings
 
 ## MVP Scope (v0.1) — done
 
@@ -53,7 +53,7 @@ PWA. Works on any phone or desktop browser. Installable to home screen.
 - [x] LRU poster cache (400 entries, adaptive resolution by zoom)
 - [x] Cell eviction outside viewport + buffer
 - [x] Mock data fallback (works without embeddings.bin)
-- [x] Data pipeline script (HuggingFace → UMAP → quantize → .bin)
+- [x] Data pipeline script (Kaggle → Ollama embeddings → UMAP → quantize → .bin)
 - [x] Ship real embeddings.bin + titles.bin
 - [x] Fuzzy title search (Web Worker)
 
