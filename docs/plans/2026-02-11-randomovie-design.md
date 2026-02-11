@@ -125,10 +125,10 @@ scripts/
 | Framework | Vanilla TS | Canvas app doesn't benefit from React/Vue, less overhead |
 | Metadata loading | Lazy (TMDB API on tap) | Minimizes initial data. Only ID + poster_path preloaded |
 
-## Open Questions
+## Resolved Questions
 
-1. **Optimal NOISE_FACTOR**: needs tuning. Too low = monotonous, too high = random mess. Start with 0.15, A/B test.
-2. **Zoom behavior**: should zoom reveal more movies (smaller) or show detail? Probably just visual zoom, same grid.
-3. **Gap between posters**: zero gap (wall of posters) or small gap? Affects density and aesthetics.
-4. **Initial experience**: random seed or curated starting set? Random is simpler but may show obscure movies.
-5. **Memory management**: at what point evict far-away cells from the grid Map? After 5000 cells? Or keep all?
+1. **NOISE_FACTOR**: start with 0.15, tune later
+2. **Zoom**: visual only — more/fewer cards visible, same grid
+3. **Gap**: zero — wall-to-wall posters
+4. **Initial experience**: random seed
+5. **Memory**: evict cells beyond viewport + buffer zone (keeps navigation smooth, frees memory for distant cells)
