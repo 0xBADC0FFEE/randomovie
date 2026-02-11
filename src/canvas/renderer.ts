@@ -1,13 +1,12 @@
 import type { Viewport } from './viewport.ts'
 import { CELL_W, CELL_H, getVisibleRange, worldToScreen } from './viewport.ts'
 import type { Grid } from '../engine/grid.ts'
-import type { PosterCache } from '../data/poster-cache.ts'
+import * as Posters from './poster-loader.ts'
 
 export function render(
   ctx: CanvasRenderingContext2D,
   vp: Viewport,
   grid: Grid,
-  posterCache: PosterCache,
 ) {
   ctx.clearRect(0, 0, vp.width, vp.height)
 
@@ -16,11 +15,12 @@ export function render(
   const cellScreenH = CELL_H * vp.scale
 
   const dpr = window.devicePixelRatio || 1
-  const size = posterCache.pickSize(vp.scale, dpr)
+  const size = Posters.pickSize(vp.scale, dpr)
 
   for (let row = range.minRow; row <= range.maxRow; row++) {
     for (let col = range.minCol; col <= range.maxCol; col++) {
-      const cell = grid.cells.get(`${col}:${row}`)
+      const cellKey = `${col}:${row}`
+      const cell = grid.cells.get(cellKey)
       if (!cell) continue
 
       const [sx, sy] = worldToScreen(vp, col * CELL_W, row * CELL_H)
@@ -28,20 +28,40 @@ export function render(
       // Skip if fully off-screen
       if (sx + cellScreenW < 0 || sy + cellScreenH < 0 || sx > vp.width || sy > vp.height) continue
 
-      const img = posterCache.getBestAvailable(cell.posterPath, size)
+      const img = Posters.getBestAvailable(cellKey, size)
       if (img) {
         ctx.drawImage(img, sx, sy, cellScreenW, cellScreenH)
         // If best available isn't the ideal size, request upgrade
-        if (!posterCache.get(cell.posterPath, size)) {
-          posterCache.load(cell.posterPath, size)
+        if (!Posters.get(cellKey, size)) {
+          Posters.load(cellKey, cell.posterPath, size)
         }
       } else {
         // Placeholder: hue derived from embedding
         const hue = (cell.embedding[0] / 255) * 360
         ctx.fillStyle = `hsl(${hue}, 40%, 20%)`
         ctx.fillRect(sx, sy, cellScreenW, cellScreenH)
-        posterCache.load(cell.posterPath, size)
+        Posters.load(cellKey, cell.posterPath, size)
       }
+    }
+  }
+
+}
+
+export function preloadPosters(
+  vp: Viewport, grid: Grid,
+) {
+  const range = getVisibleRange(vp)
+  const preloadRange = getVisibleRange(vp, 5)
+  const dpr = window.devicePixelRatio || 1
+  const size = Posters.pickSize(vp.scale, dpr)
+  for (let row = preloadRange.minRow; row <= preloadRange.maxRow; row++) {
+    for (let col = preloadRange.minCol; col <= preloadRange.maxCol; col++) {
+      if (row >= range.minRow && row <= range.maxRow
+        && col >= range.minCol && col <= range.maxCol) continue
+      const cellKey = `${col}:${row}`
+      const cell = grid.cells.get(cellKey)
+      if (!cell) continue
+      Posters.load(cellKey, cell.posterPath, size)
     }
   }
 }

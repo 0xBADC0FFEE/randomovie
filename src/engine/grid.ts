@@ -22,7 +22,8 @@ export function createGrid(): Grid {
   }
 }
 
-export function clearGrid(grid: Grid) {
+export function clearGrid(grid: Grid, onEvict?: (keys: string[]) => void) {
+  if (onEvict) onEvict([...grid.cells.keys()])
   grid.cells.clear()
   grid.onScreen.clear()
   grid.filledRange = { minCol: 0, maxCol: 0, minRow: 0, maxRow: 0 }
@@ -53,7 +54,8 @@ export function fillRange(grid: Grid, range: CellRange, index: EmbeddingsIndex, 
 }
 
 /** Evict cells outside viewport + buffer. Frees memory for distant cells. */
-export function evictOutside(grid: Grid, keep: CellRange) {
+export function evictOutside(grid: Grid, keep: CellRange, onEvict?: (keys: string[]) => void) {
+  const evicted: string[] = []
   for (const [k, cell] of grid.cells) {
     const [cs, rs] = k.split(':')
     const col = parseInt(cs)
@@ -61,6 +63,8 @@ export function evictOutside(grid: Grid, keep: CellRange) {
     if (col < keep.minCol || col > keep.maxCol || row < keep.minRow || row > keep.maxRow) {
       grid.cells.delete(k)
       grid.onScreen.delete(cell.tmdbId)
+      evicted.push(k)
     }
   }
+  if (evicted.length && onEvict) onEvict(evicted)
 }

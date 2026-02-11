@@ -1,13 +1,13 @@
 import { createViewport, centerOn, getVisibleRange, CELL_W, CELL_H, screenToWorld } from './canvas/viewport.ts'
 import { createGestureState, setupGestures } from './canvas/gestures.ts'
-import { render } from './canvas/renderer.ts'
+import { render, preloadPosters } from './canvas/renderer.ts'
 import { createGrid, fillRange, evictOutside, clearGrid, setCell } from './engine/grid.ts'
 import { generateMockIndex, parseEmbeddings } from './engine/embeddings.ts'
 import type { EmbeddingsIndex } from './engine/embeddings.ts'
-import { createPosterCache } from './data/poster-cache.ts'
+import { setOnLoad, evictImages, clearAllImages } from './canvas/poster-loader.ts'
 import { createAnimation, animateViewport } from './canvas/animation.ts'
 
-const EVICT_BUFFER = 5
+const EVICT_BUFFER = 8
 const SEARCH_DEBOUNCE = 150
 const FILL_DELAY = 300
 
@@ -59,7 +59,7 @@ let searchDebounceId = 0
 let fillDebounceId = 0
 let fillPending = false
 
-const posterCache = createPosterCache(() => scheduleRender())
+setOnLoad(() => scheduleRender())
 
 let renderScheduled = false
 function scheduleRender() {
@@ -71,14 +71,24 @@ function scheduleRender() {
   })
 }
 
+let preloadTimer = 0
+function schedulePreload() {
+  clearTimeout(preloadTimer)
+  preloadTimer = window.setTimeout(() => {
+    const cb = () => preloadPosters(vp, grid)
+    'requestIdleCallback' in window ? requestIdleCallback(cb) : cb()
+  }, 200)
+}
+
 function update() {
   const range = getVisibleRange(vp)
   if (!fillPending) fillRange(grid, range, index)
 
   const evictRange = getVisibleRange(vp, EVICT_BUFFER)
-  evictOutside(grid, evictRange)
+  evictOutside(grid, evictRange, evictImages)
 
-  render(ctx, vp, grid, posterCache)
+  render(ctx, vp, grid)
+  schedulePreload()
 }
 
 /** Find cell col,row closest to screen center */
@@ -156,7 +166,7 @@ function handleWorkerMessage(e: MessageEvent) {
     if (!entry) return
 
     const [col, row] = findCenterCell()
-    clearGrid(grid)
+    clearGrid(grid, clearAllImages)
     setCell(grid, col, row, {
       tmdbId: entry.tmdbId,
       posterPath: entry.posterPath,

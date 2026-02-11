@@ -82,8 +82,8 @@ src/
     embeddings.ts        — .bin parser, brute-force search
     search.worker.ts     — fuzzy title search (Web Worker)
     titles.ts            — titles.bin parser
-  data/
-    poster-cache.ts      — LRU image cache, adaptive LOD (400 entries)
+  canvas/
+    poster-loader.ts     — image cache keyed by grid cell, adaptive LOD
 scripts/
   pipeline.py            — Kaggle → Ollama embeddings → UMAP → quantize → .bin
 ```
