@@ -13,6 +13,7 @@ export function generateMovie(
   row: number,
   grid: Grid,
   index: EmbeddingsIndex,
+  coherent = false,
 ): MovieCell | null {
   // Collect filled neighbors within radius
   const neighbors: { cell: MovieCell; weight: number; dc: number; dr: number }[] = []
@@ -26,8 +27,8 @@ export function generateMovie(
     }
   }
 
-  // Random injection
-  if (neighbors.length === 0 || Math.random() < RANDOM_CHANCE) {
+  // Random injection (skip in coherent mode)
+  if (neighbors.length === 0 || (!coherent && Math.random() < RANDOM_CHANCE)) {
     return pickRandom(index, grid.onScreen)
   }
 
@@ -82,9 +83,10 @@ export function generateMovie(
     }
   }
 
-  // Add noise
+  // Add noise (reduced in coherent mode)
+  const noise = coherent ? 0.05 : NOISE_FACTOR
   for (let j = 0; j < EMBED_DIM; j++) {
-    target[j] += (Math.random() - 0.5) * 255 * NOISE_FACTOR
+    target[j] += (Math.random() - 0.5) * 255 * noise
     target[j] = Math.max(0, Math.min(255, target[j]))
   }
 

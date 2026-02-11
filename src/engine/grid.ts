@@ -22,6 +22,12 @@ export function createGrid(): Grid {
   }
 }
 
+export function clearGrid(grid: Grid) {
+  grid.cells.clear()
+  grid.onScreen.clear()
+  grid.filledRange = { minCol: 0, maxCol: 0, minRow: 0, maxRow: 0 }
+}
+
 function key(col: number, row: number): string {
   return `${col}:${row}`
 }
@@ -36,11 +42,11 @@ export function setCell(grid: Grid, col: number, row: number, cell: MovieCell) {
 }
 
 /** Fill all empty cells within the given range */
-export function fillRange(grid: Grid, range: CellRange, index: EmbeddingsIndex) {
+export function fillRange(grid: Grid, range: CellRange, index: EmbeddingsIndex, coherent = false) {
   for (let row = range.minRow; row <= range.maxRow; row++) {
     for (let col = range.minCol; col <= range.maxCol; col++) {
       if (grid.cells.has(key(col, row))) continue
-      const cell = generateMovie(col, row, grid, index)
+      const cell = generateMovie(col, row, grid, index, coherent)
       if (cell) setCell(grid, col, row, cell)
     }
   }

@@ -51,8 +51,13 @@ def filter_movies(ds):
         except (ValueError, SyntaxError):
             continue
 
+        title = row.get("title") or row.get("original_title") or ""
+        if not title:
+            continue
+
         filtered.append({
             "tmdb_id": row["id"],
+            "title": title,
             "poster_path": poster,
             "embedding": np.array(embedding, dtype=np.float32),
         })
@@ -91,6 +96,28 @@ def quantize(embeddings):
     quantized = (normalized * 255).clip(0, 255).astype(np.uint8)
     print(f"Quantized shape: {quantized.shape}")
     return quantized
+
+
+def write_titles_binary(movies, output_path):
+    """
+    Write titles.bin:
+    [count: uint32]
+    [per movie: tmdb_id: uint32, title_len: uint8, title: utf8]
+    """
+    print(f"Writing {output_path}...")
+    with open(output_path, "wb") as f:
+        f.write(struct.pack("<I", len(movies)))
+
+        for movie in movies:
+            tmdb_id = movie["tmdb_id"]
+            title = movie["title"].encode("utf-8")[:255]  # clamp to uint8 max
+
+            f.write(struct.pack("<I", tmdb_id))
+            f.write(struct.pack("<B", len(title)))
+            f.write(title)
+
+    size = Path(output_path).stat().st_size
+    print(f"Written {len(movies)} titles, {size:,} bytes ({size / 1024 / 1024:.1f} MB)")
 
 
 def write_binary(movies, quantized, output_path):
@@ -132,6 +159,9 @@ def main():
     reduced = reduce_dimensions(movies, target_dim=16)
     quantized = quantize(reduced)
     write_binary(movies, quantized, output_path)
+
+    titles_path = output_dir / "titles.bin"
+    write_titles_binary(movies, titles_path)
 
     print(f"\nDone! File: {output_path}")
     print(f"Movies: {len(movies)}")

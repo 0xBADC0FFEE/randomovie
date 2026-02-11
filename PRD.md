@@ -6,7 +6,7 @@ Choosing a movie is painful. Streaming UIs show ranked lists or categories — y
 
 ## Solution
 
-Infinite 2D canvas of movie posters. No lists, no categories, no search. You pan around, and the canvas fills with movies similar to what's already on screen. Swipe toward something you like — more of that appears. Random movies are mixed in so you never hit a dead end.
+Infinite 2D canvas of movie posters. No lists, no categories. You pan around, and the canvas fills with movies similar to what's already on screen. Swipe toward something you like — more of that appears. Random movies are mixed in so you never hit a dead end.
 
 ## Core Experience
 
@@ -14,21 +14,23 @@ Infinite 2D canvas of movie posters. No lists, no categories, no search. You pan
 2. Pan in any direction → new posters appear at edges, similar to visible neighbors
 3. Keep swiping toward what catches your eye → the canvas adapts
 4. Random posters sprinkled in → create new exploration paths
-5. Tap a poster → see details (title, year, rating, description)
-6. That's it. No accounts, no ratings, no watchlists (for now)
+5. Type to search → center poster swaps, neighbors regenerate
+6. Tap a poster → see details (title, year, rating, description)
+7. That's it. No accounts, no ratings, no watchlists (for now)
 
 ## How Similarity Works
 
 - Each movie has a 16-dimensional embedding vector (UMAP-reduced from text embeddings of plot + genres + cast)
 - When a new cell needs filling: average the embeddings of visible neighbors (weighted by proximity), add noise, find closest match
-- 20% of new cells are fully random — prevents similarity bubbles, seeds new directions
+- Scroll direction is extrapolated to continue genre trends (gradient extrapolation)
+- 5% of new cells are fully random — prevents similarity bubbles, seeds new directions
 - Already-placed movies never change
 
 ## Constraints
 
 - **No backend**: all data precomputed, served as static files from CDN
 - **Client-side only**: similarity search runs in-browser (~1ms per query)
-- **Initial download**: ~3MB (embeddings + app shell), cached by Service Worker
+- **Initial download**: ~5MB (embeddings + titles + app shell), cached by Service Worker
 - **Poster images**: loaded on demand from TMDB CDN
 - **Catalog**: ~80k movies (filtered from TMDB: has poster, >100 votes, rating >5.0)
 
@@ -52,11 +54,12 @@ PWA. Works on any phone or desktop browser. Installable to home screen.
 - [x] Cell eviction outside viewport + buffer
 - [x] Mock data fallback (works without embeddings.bin)
 - [x] Data pipeline script (HuggingFace → UMAP → quantize → .bin)
+- [x] Ship real embeddings.bin + titles.bin
+- [x] Fuzzy title search (Web Worker)
 
 ## v0.2 — next
 
 - [ ] Tap → movie detail card (overlay with title, year, rating, plot, links to streaming)
-- [ ] Run pipeline, ship real embeddings.bin
 - [ ] Service Worker for offline / instant reload
 - [ ] Loading state on first visit (while embeddings download)
 

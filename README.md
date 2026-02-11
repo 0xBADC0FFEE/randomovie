@@ -13,6 +13,8 @@ Infinite 2D canvas of movie posters. Swipe in any direction — see similar movi
 
 All computation runs client-side in a Web Worker. No backend needed.
 
+Type to search — fuzzy title matching runs in a Web Worker (`titles.bin`, ~1 MB). Center poster swaps instantly, neighbors regenerate after a short delay.
+
 ## Quick start (mock data)
 
 ```bash
@@ -33,7 +35,7 @@ pip install datasets numpy umap-learn
 python scripts/pipeline.py
 ```
 
-This downloads ~680k movies from HuggingFace, filters to ~80k, runs UMAP dimensionality reduction, and outputs `public/data/embeddings.bin` (~4 MB).
+This downloads ~680k movies from HuggingFace, filters to ~80k, runs UMAP dimensionality reduction, and outputs `public/data/embeddings.bin` (~4 MB) and `public/data/titles.bin` (~1 MB).
 
 Takes a while on first run (dataset download + UMAP). Subsequent runs are faster if the dataset is cached.
 
@@ -63,10 +65,13 @@ src/
     viewport.ts          — coordinate math, cell ranges, dynamic zoom limits
     gestures.ts          — pan/pinch/zoom with inertia
     renderer.ts          — Canvas 2D render loop, culling
+    animation.ts         — viewport lerp for search transitions
   engine/
     grid.ts              — cell storage, expansion, eviction
     generator.ts         — similarity + random algorithm
     embeddings.ts        — .bin parser, brute-force search
+    search.worker.ts     — fuzzy title search (Web Worker)
+    titles.ts            — titles.bin parser
   data/
     poster-cache.ts      — LRU image cache, adaptive LOD (400 entries)
 scripts/

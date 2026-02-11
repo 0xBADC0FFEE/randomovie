@@ -14,6 +14,7 @@ export interface GestureState {
   pinchCenterX: number
   pinchCenterY: number
   animId: number
+  disabled: boolean
 }
 
 export function createGestureState(): GestureState {
@@ -23,6 +24,7 @@ export function createGestureState(): GestureState {
     velocityX: 0, velocityY: 0,
     pinchDist: 0, pinchCenterX: 0, pinchCenterY: 0,
     animId: 0,
+    disabled: false,
   }
 }
 
@@ -44,6 +46,7 @@ export function setupGestures(
 ) {
   el.addEventListener('touchstart', (e) => {
     e.preventDefault()
+    if (gs.disabled) return
     cancelAnimationFrame(gs.animId)
     gs.velocityX = gs.velocityY = 0
 
@@ -61,6 +64,7 @@ export function setupGestures(
 
   el.addEventListener('touchmove', (e) => {
     e.preventDefault()
+    if (gs.disabled) return
 
     if (gs.pinching && e.touches.length === 2) {
       const newDist = dist(e.touches)
@@ -109,6 +113,7 @@ export function setupGestures(
   // Mouse support for desktop
   let mouseDown = false
   el.addEventListener('mousedown', (e) => {
+    if (gs.disabled) return
     mouseDown = true
     cancelAnimationFrame(gs.animId)
     gs.velocityX = gs.velocityY = 0
@@ -143,6 +148,7 @@ export function setupGestures(
 
   el.addEventListener('wheel', (e) => {
     e.preventDefault()
+    if (gs.disabled) return
     const zoomFactor = e.deltaY > 0 ? 0.95 : 1.05
     const newScale = Math.min(MAX_SCALE, Math.max(getMinScale(vp), vp.scale * zoomFactor))
     const scaleChange = newScale / vp.scale
