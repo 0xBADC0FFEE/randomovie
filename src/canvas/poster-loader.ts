@@ -1,7 +1,7 @@
 import { CELL_W } from './viewport.ts'
 
 const TMDB_IMG_BASE = 'https://image.tmdb.org/t/p/'
-const MAX_CONCURRENT = 8
+const MAX_CONCURRENT = 12
 const TMDB_SIZES = [92, 154, 185, 342, 500, 780] as const
 
 export type TmdbSize = (typeof TMDB_SIZES)[number]
@@ -9,6 +9,7 @@ export type TmdbSize = (typeof TMDB_SIZES)[number]
 /** Map<cellKey, Map<TmdbSize, HTMLImageElement>> */
 const store = new Map<string, Map<TmdbSize, HTMLImageElement>>()
 let inFlight = 0
+const queue: { cellKey: string; posterPath: string; size: TmdbSize }[] = []
 let onLoad: (() => void) | undefined
 
 export function setOnLoad(cb: () => void) {
@@ -45,10 +46,18 @@ export function getBestAvailable(cellKey: string, size: TmdbSize): HTMLImageElem
 
 export function load(cellKey: string, posterPath: string, size: TmdbSize): void {
   if (!posterPath) return
-  let cell = store.get(cellKey)
-  if (cell?.has(size)) return
-  if (inFlight >= MAX_CONCURRENT) return
+  if (store.get(cellKey)?.has(size)) return
+  if (inFlight >= MAX_CONCURRENT) {
+    // avoid duplicate queue entries
+    if (!queue.some(q => q.cellKey === cellKey && q.size === size))
+      queue.push({ cellKey, posterPath, size })
+    return
+  }
+  fireLoad(cellKey, posterPath, size)
+}
 
+function fireLoad(cellKey: string, posterPath: string, size: TmdbSize): void {
+  let cell = store.get(cellKey)
   if (!cell) {
     cell = new Map()
     store.set(cellKey, cell)
@@ -58,15 +67,29 @@ export function load(cellKey: string, posterPath: string, size: TmdbSize): void 
   const img = new Image()
   img.crossOrigin = 'anonymous'
   img.src = `${TMDB_IMG_BASE}w${size}${posterPath}`
-  img.onload = () => { inFlight--; onLoad?.() }
-  img.onerror = () => { inFlight--; cell!.delete(size) }
+  const done = () => { inFlight--; drainQueue() }
+  img.onload = () => { done(); onLoad?.() }
+  img.onerror = () => { cell!.delete(size); done() }
   cell.set(size, img)
 }
 
+function drainQueue(): void {
+  while (inFlight < MAX_CONCURRENT && queue.length > 0) {
+    const item = queue.shift()!
+    if (store.get(item.cellKey)?.has(item.size)) continue
+    fireLoad(item.cellKey, item.posterPath, item.size)
+  }
+}
+
 export function evictImages(keys: string[]) {
+  const evicted = new Set(keys)
   for (const k of keys) store.delete(k)
+  for (let i = queue.length - 1; i >= 0; i--) {
+    if (evicted.has(queue[i].cellKey)) queue.splice(i, 1)
+  }
 }
 
 export function clearAllImages() {
   store.clear()
+  queue.length = 0
 }

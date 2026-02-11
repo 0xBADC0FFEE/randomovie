@@ -1,5 +1,5 @@
 import type { Viewport } from './viewport.ts'
-import { CELL_W, CELL_H, getVisibleRange, worldToScreen } from './viewport.ts'
+import { CELL_W, CELL_H, PRELOAD_BUFFER, getVisibleRange, getDirectionalRange, worldToScreen } from './viewport.ts'
 import type { Grid } from '../engine/grid.ts'
 import * as Posters from './poster-loader.ts'
 
@@ -48,10 +48,10 @@ export function render(
 }
 
 export function preloadPosters(
-  vp: Viewport, grid: Grid,
+  vp: Viewport, grid: Grid, vx: number, vy: number,
 ) {
   const range = getVisibleRange(vp)
-  const preloadRange = getVisibleRange(vp, 5)
+  const preloadRange = getDirectionalRange(vp, PRELOAD_BUFFER, vx, vy)
   const dpr = window.devicePixelRatio || 1
   const size = Posters.pickSize(vp.scale, dpr)
   for (let row = preloadRange.minRow; row <= preloadRange.maxRow; row++) {

@@ -1,5 +1,6 @@
 export const CELL_W = 120
 export const CELL_H = 180
+export const PRELOAD_BUFFER = 5
 
 export interface Viewport {
   offsetX: number
@@ -38,6 +39,39 @@ export function getVisibleRange(vp: Viewport, buffer = 2): CellRange {
     minRow: Math.floor(wy0 / CELL_H) - buffer,
     maxRow: Math.ceil(wy1 / CELL_H) + buffer,
   }
+}
+
+const DIR_THRESHOLD = 0.5
+
+/** Asymmetric buffer: more cells ahead of movement, fewer behind. */
+export function getDirectionalRange(vp: Viewport, buffer: number, vx: number, vy: number): CellRange {
+  const sym = getVisibleRange(vp, buffer)
+  if (Math.abs(vx) < DIR_THRESHOLD && Math.abs(vy) < DIR_THRESHOLD) return sym
+
+  const base = getVisibleRange(vp, 0)
+  const ahead = Math.round(buffer * 0.8)
+  const behind = buffer - ahead
+
+  let minCol: number, maxCol: number, minRow: number, maxRow: number
+
+  if (Math.abs(vx) >= DIR_THRESHOLD) {
+    // vx > 0 (drag right) → world left → ahead = lower cols
+    minCol = base.minCol - (vx > 0 ? ahead : behind)
+    maxCol = base.maxCol + (vx > 0 ? behind : ahead)
+  } else {
+    minCol = sym.minCol
+    maxCol = sym.maxCol
+  }
+
+  if (Math.abs(vy) >= DIR_THRESHOLD) {
+    minRow = base.minRow - (vy > 0 ? ahead : behind)
+    maxRow = base.maxRow + (vy > 0 ? behind : ahead)
+  } else {
+    minRow = sym.minRow
+    maxRow = sym.maxRow
+  }
+
+  return { minCol, maxCol, minRow, maxRow }
 }
 
 /** Center viewport on cell (0,0) */
