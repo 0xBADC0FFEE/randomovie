@@ -15,6 +15,9 @@ export function render(
   const cellScreenW = CELL_W * vp.scale
   const cellScreenH = CELL_H * vp.scale
 
+  const dpr = window.devicePixelRatio || 1
+  const size = posterCache.pickSize(vp.scale, dpr)
+
   for (let row = range.minRow; row <= range.maxRow; row++) {
     for (let col = range.minCol; col <= range.maxCol; col++) {
       const cell = grid.cells.get(`${col}:${row}`)
@@ -25,15 +28,19 @@ export function render(
       // Skip if fully off-screen
       if (sx + cellScreenW < 0 || sy + cellScreenH < 0 || sx > vp.width || sy > vp.height) continue
 
-      const img = posterCache.get(cell.posterPath)
-      if (img?.complete && img.naturalWidth > 0) {
+      const img = posterCache.getBestAvailable(cell.posterPath, size)
+      if (img) {
         ctx.drawImage(img, sx, sy, cellScreenW, cellScreenH)
+        // If best available isn't the ideal size, request upgrade
+        if (!posterCache.get(cell.posterPath, size)) {
+          posterCache.load(cell.posterPath, size)
+        }
       } else {
         // Placeholder: hue derived from embedding
         const hue = (cell.embedding[0] / 255) * 360
         ctx.fillStyle = `hsl(${hue}, 40%, 20%)`
         ctx.fillRect(sx, sy, cellScreenW, cellScreenH)
-        posterCache.load(cell.posterPath)
+        posterCache.load(cell.posterPath, size)
       }
     }
   }

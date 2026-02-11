@@ -68,7 +68,7 @@ src/
     generator.ts         — similarity + random algorithm
     embeddings.ts        — .bin parser, brute-force search
   data/
-    poster-cache.ts      — LRU image cache (200 posters)
+    poster-cache.ts      — LRU image cache, adaptive LOD (400 entries)
 scripts/
   pipeline.py            — HuggingFace → UMAP → quantize → .bin
 ```

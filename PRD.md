@@ -48,7 +48,7 @@ PWA. Works on any phone or desktop browser. Installable to home screen.
 - [x] Infinite canvas with pan, pinch-zoom, inertia
 - [x] Similarity-driven cell generation with random mixing
 - [x] Hue-based placeholders while posters load
-- [x] LRU poster cache (200 images)
+- [x] LRU poster cache (400 entries, adaptive resolution by zoom)
 - [x] Cell eviction outside viewport + buffer
 - [x] Mock data fallback (works without embeddings.bin)
 - [x] Data pipeline script (HuggingFace → UMAP → quantize → .bin)
