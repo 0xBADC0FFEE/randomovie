@@ -27,10 +27,11 @@ const searchInput = document.getElementById('search') as HTMLInputElement
 
 function resize() {
   const dpr = window.devicePixelRatio || 1
-  const w = window.innerWidth
-  const h = window.innerHeight
-  canvas.width = w * dpr
-  canvas.height = h * dpr
+  const rect = canvas.getBoundingClientRect()
+  const w = rect.width
+  const h = rect.height
+  canvas.width = Math.round(w * dpr)
+  canvas.height = Math.round(h * dpr)
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   vp.width = w
   vp.height = h
@@ -43,12 +44,6 @@ function onVisualViewportChange() {
   // Cancel any running enterSearchMode animation so tick() can't overwrite
   cancelAnimationFrame(anim.id)
   anim.running = false
-
-  // Position input above keyboard using absolute top (avoids iOS fixed+bottom bugs)
-  const top = vvp.offsetTop + vvp.height - 76  // 60 inputH + 16 margin
-  searchInput.style.position = 'absolute'
-  searchInput.style.bottom = ''
-  searchInput.style.top = top + 'px'
 
   centerCardForSearch(searchCell[0], searchCell[1], vvp.offsetTop, vvp.height, false)
 }
@@ -188,9 +183,6 @@ function exitSearchMode() {
   gs.disabled = false
   searchInput.blur()
   searchInput.value = ''
-  searchInput.style.position = ''
-  searchInput.style.top = ''
-  searchInput.style.bottom = ''
   scheduleRender()
 }
 
