@@ -1,6 +1,6 @@
 export const CELL_W = 120
 export const CELL_H = 180
-export const PRELOAD_BUFFER = 5
+export const PRELOAD_BUFFER = 8
 
 export interface Viewport {
   offsetX: number

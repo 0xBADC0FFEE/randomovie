@@ -7,10 +7,19 @@ import type { EmbeddingsIndex } from './engine/embeddings.ts'
 import { setOnLoad, evictImages, clearAllImages } from './canvas/poster-loader.ts'
 import { createAnimation, animateViewport } from './canvas/animation.ts'
 
-const EVICT_BUFFER = 8
+const EVICT_BUFFER = 12
+const GESTURE_BUFFER = 5
+const GESTURE_FILL = 10
 const FILL_PER_FRAME = 6
+const IDLE_FILL_MAX = 20
 const SEARCH_DEBOUNCE = 150
 const FILL_DELAY = 300
+
+const rIC: typeof requestIdleCallback = window.requestIdleCallback
+  ?? ((cb) => setTimeout(() => cb({
+    timeRemaining: () => 1, didTimeout: false,
+  } as IdleDeadline), 1) as any)
+const cIC: typeof cancelIdleCallback = window.cancelIdleCallback ?? clearTimeout
 
 const canvas = document.getElementById('canvas') as HTMLCanvasElement
 const ctx = canvas.getContext('2d')!
@@ -59,6 +68,27 @@ let searchCell: [number, number] = [0, 0]
 let searchDebounceId = 0
 let fillDebounceId = 0
 let fillPending = false
+let idleId = 0
+
+function cancelIdleFill() {
+  if (idleId) { cIC(idleId); idleId = 0 }
+}
+
+function scheduleIdleFill() {
+  if (idleId || fillPending) return
+  idleId = rIC((deadline) => {
+    idleId = 0
+    if (gs.active) return
+    const range = getVisibleRange(vp, PRELOAD_BUFFER)
+    let n = 0
+    while (deadline.timeRemaining() > 1 && n < IDLE_FILL_MAX) {
+      if (fillRange(grid, range, index, false, 1) === 0) return
+      n++
+    }
+    if (n > 0) scheduleRepaint()
+    scheduleIdleFill()
+  })
+}
 
 let repaintScheduled = false
 function scheduleRepaint() {
@@ -88,21 +118,27 @@ function scheduleRender(immediate?: boolean) {
 }
 
 function update() {
-  const visibleRange = getVisibleRange(vp)
+  if (gs.active) cancelIdleFill()
 
   let n = 0
-  if (!fillPending) n = fillRange(grid, visibleRange, index, false, gs.active ? 3 : FILL_PER_FRAME)
+  if (!fillPending) {
+    if (gs.active) {
+      // Pass 1: fill entire render range (no budget — cells show as empty otherwise)
+      n = fillRange(grid, getVisibleRange(vp), index, false)
+      // Pass 2: budget-limited buffer cells for preloading
+      // visible cells already exist from pass 1 → skipped → budget only for buffer
+      n += fillRange(grid, getVisibleRange(vp, GESTURE_BUFFER), index, false, GESTURE_FILL)
+    } else {
+      n = fillRange(grid, getVisibleRange(vp, 0), index, false, FILL_PER_FRAME)
+    }
+  }
 
   render(ctx, vp, grid)
-
-  if (!fillPending && !gs.active) {
-    const left = FILL_PER_FRAME - n
-    if (left > 0) n += fillRange(grid, getVisibleRange(vp, PRELOAD_BUFFER), index, false, left)
-  }
 
   if (n > 0) scheduleRender()
   evictOutside(grid, getVisibleRange(vp, EVICT_BUFFER), evictImages)
   preloadPosters(vp, grid)
+  scheduleIdleFill()
 }
 
 /** Find cell col,row closest to screen center */
