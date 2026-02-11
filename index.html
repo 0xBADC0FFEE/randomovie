@@ -10,7 +10,7 @@
     <title>Randomovie</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { width: 100%; height: 100vh; overflow: hidden; background: #000; touch-action: none; }
+      html, body { width: 100%; height: 100vh; overflow: hidden; background: #000; touch-action: none; color-scheme: dark; }
       canvas { display: block; width: 100%; height: 100%; }
       #search {
         position: fixed;
@@ -37,7 +37,7 @@
         background-size: 20px 20px;
         transition: background 0.2s, border-color 0.2s, box-shadow 0.2s, bottom 0.2s;
       }
-      #search::placeholder { color: rgba(255,255,255,0.4); }
+      #search::placeholder { color: rgba(255,255,255,0.4); opacity: 1; -webkit-text-fill-color: rgba(255,255,255,0.4); }
       #search:focus {
         background-color: rgba(255,255,255,0.12);
         border-color: rgba(255,255,255,0.22);
