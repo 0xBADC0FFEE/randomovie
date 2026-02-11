@@ -17,11 +17,30 @@ const searchInput = document.getElementById('search') as HTMLInputElement
 
 function resize() {
   const dpr = window.devicePixelRatio || 1
-  canvas.width = window.innerWidth * dpr
-  canvas.height = window.innerHeight * dpr
+  const w = window.innerWidth
+  const h = window.innerHeight
+  canvas.width = w * dpr
+  canvas.height = h * dpr
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-  vp.width = window.innerWidth
-  vp.height = window.innerHeight
+  vp.width = w
+  vp.height = h
+}
+
+function onVisualViewportChange() {
+  if (!searchMode) return
+  const vvp = window.visualViewport!
+
+  // Cancel any running enterSearchMode animation so tick() can't overwrite
+  cancelAnimationFrame(anim.id)
+  anim.running = false
+
+  // Position input above keyboard using absolute top (avoids iOS fixed+bottom bugs)
+  const top = vvp.offsetTop + vvp.height - 76  // 60 inputH + 16 margin
+  searchInput.style.position = 'absolute'
+  searchInput.style.bottom = ''
+  searchInput.style.top = top + 'px'
+
+  centerCardForSearch(searchCell[0], searchCell[1], vvp.offsetTop, vvp.height, false)
 }
 
 const vp = createViewport(window.innerWidth, window.innerHeight)
@@ -35,6 +54,7 @@ let searchReady = false
 
 let index: EmbeddingsIndex
 let searchMode = false
+let searchCell: [number, number] = [0, 0]
 let searchDebounceId = 0
 let fillDebounceId = 0
 let fillPending = false
@@ -67,30 +87,38 @@ function findCenterCell(): [number, number] {
   return [Math.round(wx / CELL_W - 0.5), Math.round(wy / CELL_H - 0.5)]
 }
 
+/** Center+fit one card in visible area above search input */
+function centerCardForSearch(col: number, row: number, viewTop: number, viewH: number, animate = true) {
+  const inputH = 60
+  const pad = 24
+  const availH = viewH - inputH - pad * 2
+  const availW = vp.width - pad * 2
+  const scaleH = availH / CELL_H
+  const scaleW = availW / CELL_W
+  const targetScale = Math.min(scaleH, scaleW)
+
+  const centerY = viewTop + (viewH - inputH) / 2
+  const targetOffsetX = vp.width / 2 - (col + 0.5) * CELL_W * targetScale
+  const targetOffsetY = centerY - (row + 0.5) * CELL_H * targetScale
+
+  if (animate) {
+    animateViewport(anim, vp, targetOffsetX, targetOffsetY, targetScale, scheduleRender)
+  } else {
+    vp.offsetX = targetOffsetX
+    vp.offsetY = targetOffsetY
+    vp.scale = targetScale
+    scheduleRender()
+  }
+}
+
 /** Enter search mode: animate viewport to center+fit one card above input */
 function enterSearchMode() {
   if (searchMode) return
   searchMode = true
   gs.disabled = true
 
-  const [col, row] = findCenterCell()
-
-  // Target scale: card fits in area above search input
-  // Search input ~60px from bottom; leave some padding
-  const inputH = 60
-  const pad = 24
-  const availH = vp.height - inputH - pad * 2
-  const availW = vp.width - pad * 2
-  const scaleH = availH / CELL_H
-  const scaleW = availW / CELL_W
-  const targetScale = Math.min(scaleH, scaleW)
-
-  // Center cell in available area (shifted up by half inputH)
-  const centerY = (vp.height - inputH) / 2
-  const targetOffsetX = vp.width / 2 - (col + 0.5) * CELL_W * targetScale
-  const targetOffsetY = centerY - (row + 0.5) * CELL_H * targetScale
-
-  animateViewport(anim, vp, targetOffsetX, targetOffsetY, targetScale, scheduleRender)
+  searchCell = findCenterCell()
+  centerCardForSearch(searchCell[0], searchCell[1], 0, vp.height)
 }
 
 /** Exit search mode */
@@ -100,6 +128,10 @@ function exitSearchMode() {
   gs.disabled = false
   searchInput.blur()
   searchInput.value = ''
+  searchInput.style.position = ''
+  searchInput.style.top = ''
+  searchInput.style.bottom = ''
+  scheduleRender()
 }
 
 /** Handle search input: post query to worker */
@@ -203,6 +235,10 @@ function setupSearch() {
 async function init() {
   resize()
   window.addEventListener('resize', () => { resize(); scheduleRender() })
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', onVisualViewportChange)
+    window.visualViewport.addEventListener('scroll', onVisualViewportChange)
+  }
 
   index = await loadEmbeddings()
   const titlesLoaded = await loadTitles()
