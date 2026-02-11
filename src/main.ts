@@ -7,6 +7,17 @@ import type { EmbeddingsIndex } from './engine/embeddings.ts'
 import { setOnLoad, evictImages, clearAllImages } from './canvas/poster-loader.ts'
 import { createAnimation, animateViewport } from './canvas/animation.ts'
 
+function getSafeAreaTop(): number {
+  const el = document.createElement('div')
+  el.style.height = 'env(safe-area-inset-top, 0px)'
+  document.body.appendChild(el)
+  const h = el.getBoundingClientRect().height
+  document.body.removeChild(el)
+  return h
+}
+
+let safeTop = 0
+
 const EVICT_BUFFER = 12
 const GESTURE_BUFFER = 5
 const GESTURE_FILL = 10
@@ -146,13 +157,13 @@ function findCenterCell(): [number, number] {
 function centerCardForSearch(col: number, row: number, viewTop: number, viewH: number, animate = true) {
   const inputH = 60
   const pad = 24
-  const availH = viewH - inputH - pad * 2
+  const availH = viewH - safeTop - inputH - pad * 2
   const availW = vp.width - pad * 2
   const scaleH = availH / CELL_H
   const scaleW = availW / CELL_W
   const targetScale = Math.min(scaleH, scaleW)
 
-  const centerY = viewTop + (viewH - inputH) / 2
+  const centerY = viewTop + (viewH - inputH + safeTop) / 2
   const targetOffsetX = vp.width / 2 - (col + 0.5) * CELL_W * targetScale
   const targetOffsetY = centerY - (row + 0.5) * CELL_H * targetScale
 
@@ -285,6 +296,7 @@ function setupSearch() {
 }
 
 async function init() {
+  safeTop = getSafeAreaTop()
   resize()
   window.addEventListener('resize', () => { resize(); scheduleRender() })
   if (window.visualViewport) {

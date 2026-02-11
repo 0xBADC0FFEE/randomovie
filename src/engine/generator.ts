@@ -2,7 +2,7 @@ import type { EmbeddingsIndex, MovieEntry } from './embeddings.ts'
 import { EMBED_DIM, findTopK } from './embeddings.ts'
 import type { Grid, MovieCell } from './grid.ts'
 
-const NOISE_FACTOR = 0.15
+const NOISE_FACTOR = 0.08
 const RANDOM_CHANCE = 0.05
 const NEIGHBOR_RADIUS = 3
 const TOP_K = 10
@@ -27,10 +27,13 @@ export function generateMovie(
     }
   }
 
-  // Random injection (skip in coherent mode)
-  if (neighbors.length === 0 || (!coherent && Math.random() < RANDOM_CHANCE)) {
+  // No neighbors — pick random
+  if (neighbors.length === 0) {
     return pickRandom(index, grid.onScreen)
   }
+
+  // Diversity injection: use neighbor blend with high noise instead of pure random
+  const diversityMode = !coherent && Math.random() < RANDOM_CHANCE
 
   // Weighted average embedding
   const target = new Float32Array(EMBED_DIM)
@@ -83,8 +86,8 @@ export function generateMovie(
     }
   }
 
-  // Add noise (reduced in coherent mode)
-  const noise = coherent ? 0.05 : NOISE_FACTOR
+  // Add noise (reduced in coherent mode, amplified in diversity mode)
+  const noise = coherent ? 0.05 : diversityMode ? NOISE_FACTOR * 4 : NOISE_FACTOR
   for (let j = 0; j < EMBED_DIM; j++) {
     target[j] += (Math.random() - 0.5) * 255 * noise
     target[j] = Math.max(0, Math.min(255, target[j]))
@@ -108,8 +111,8 @@ function pickRandom(index: EmbeddingsIndex, exclude: Set<number>): MovieCell | n
 }
 
 function weightedPick(candidates: MovieEntry[]): MovieEntry {
-  // Inverse rank weighting: first gets weight K, last gets weight 1
-  const weights = candidates.map((_, i) => candidates.length - i)
+  // Quadratic rank weighting: strongly favors closest matches
+  const weights = candidates.map((_, i) => (candidates.length - i) ** 2)
   const total = weights.reduce((a, b) => a + b, 0)
   let r = Math.random() * total
   for (let i = 0; i < candidates.length; i++) {
