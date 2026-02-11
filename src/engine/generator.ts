@@ -3,9 +3,10 @@ import { EMBED_DIM, findTopK } from './embeddings.ts'
 import type { Grid, MovieCell } from './grid.ts'
 
 const NOISE_FACTOR = 0.15
-const RANDOM_CHANCE = 0.2
+const RANDOM_CHANCE = 0.05
 const NEIGHBOR_RADIUS = 3
 const TOP_K = 10
+const MOMENTUM = 0.5
 
 export function generateMovie(
   col: number,
@@ -14,14 +15,14 @@ export function generateMovie(
   index: EmbeddingsIndex,
 ): MovieCell | null {
   // Collect filled neighbors within radius
-  const neighbors: { cell: MovieCell; weight: number }[] = []
+  const neighbors: { cell: MovieCell; weight: number; dc: number; dr: number }[] = []
   for (let dr = -NEIGHBOR_RADIUS; dr <= NEIGHBOR_RADIUS; dr++) {
     for (let dc = -NEIGHBOR_RADIUS; dc <= NEIGHBOR_RADIUS; dc++) {
       if (dc === 0 && dr === 0) continue
       const cell = grid.cells.get(`${col + dc}:${row + dr}`)
       if (!cell) continue
       const d = Math.sqrt(dc * dc + dr * dr)
-      neighbors.push({ cell, weight: 1 / d })
+      neighbors.push({ cell, weight: 1 / d, dc, dr })
     }
   }
 
@@ -41,6 +42,44 @@ export function generateMovie(
   }
   for (let j = 0; j < EMBED_DIM; j++) {
     target[j] /= totalW
+  }
+
+  // Gradient extrapolation — continue genre trends along scroll direction
+  let centDc = 0, centDr = 0
+  for (const { weight, dc, dr } of neighbors) {
+    centDc += dc * weight
+    centDr += dr * weight
+  }
+  centDc /= totalW
+  centDr /= totalW
+
+  let dirDc = -centDc, dirDr = -centDr
+  const dirLen = Math.sqrt(dirDc * dirDc + dirDr * dirDr)
+  if (dirLen > 0.01) {
+    dirDc /= dirLen
+    dirDr /= dirLen
+
+    let varC = 0, varR = 0
+    for (const { weight, dc, dr } of neighbors) {
+      varC += weight * (dc - centDc) ** 2
+      varR += weight * (dr - centDr) ** 2
+    }
+
+    for (let j = 0; j < EMBED_DIM; j++) {
+      let gC = 0, gR = 0
+      for (const { cell, weight, dc, dr } of neighbors) {
+        const delta = cell.embedding[j] - target[j]
+        gC += weight * (dc - centDc) * delta
+        gR += weight * (dr - centDr) * delta
+      }
+      if (varC > 0) gC /= varC
+      if (varR > 0) gR /= varR
+      target[j] += (gC * dirDc + gR * dirDr) * MOMENTUM
+    }
+
+    for (let j = 0; j < EMBED_DIM; j++) {
+      target[j] = Math.max(0, Math.min(255, target[j]))
+    }
   }
 
   // Add noise

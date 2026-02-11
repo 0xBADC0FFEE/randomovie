@@ -6,10 +6,10 @@ Infinite 2D canvas of movie posters. Swipe in any direction — see similar movi
 
 ~80k movies are represented as 16-dimensional vectors (UMAP-reduced from 768-dim text embeddings). When you scroll to the edge:
 
-1. Visible neighbors' embeddings are averaged (weighted by distance)
+1. Visible neighbors' embeddings are averaged (weighted by distance), then a gradient is extrapolated along the scroll direction to continue genre trends
 2. Noise is added for variety
 3. Brute-force search finds the closest match (~1ms)
-4. 20% of tiles are fully random to prevent similarity bubbles
+4. 5% of tiles are fully random to prevent similarity bubbles
 
 All computation runs client-side in a Web Worker. No backend needed.
 
