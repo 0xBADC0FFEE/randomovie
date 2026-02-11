@@ -60,7 +60,11 @@ npm run build
 npm run preview
 ```
 
-Output goes to `dist/`. Deploy anywhere that serves static files.
+Output goes to `dist/`.
+
+Pushing to `main` auto-deploys to GitHub Pages via Actions. Live at **https://0xBADC0FFEE.github.io/randomovie/**
+
+Installable as a PWA (offline-capable after first load).
 
 ## Project structure
 
@@ -86,7 +90,7 @@ scripts/
 
 ## Tech
 
-- Vanilla TypeScript, Vite
+- Vanilla TypeScript, Vite, PWA (vite-plugin-pwa + Workbox)
 - HTML5 Canvas 2D (no WebGL, no framework)
 - Dynamic zoom limit — max ~78 visible posters to prevent rendering lag
 - Posters from TMDB CDN (`image.tmdb.org`)

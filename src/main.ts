@@ -177,7 +177,7 @@ function handleWorkerMessage(e: MessageEvent) {
 
 async function loadEmbeddings(): Promise<EmbeddingsIndex> {
   try {
-    const resp = await fetch('/data/embeddings.bin')
+    const resp = await fetch(`${import.meta.env.BASE_URL}data/embeddings.bin`)
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
     const buffer = await resp.arrayBuffer()
     return parseEmbeddings(buffer)
@@ -189,7 +189,7 @@ async function loadEmbeddings(): Promise<EmbeddingsIndex> {
 
 async function loadTitles(): Promise<boolean> {
   try {
-    const resp = await fetch('/data/titles.bin')
+    const resp = await fetch(`${import.meta.env.BASE_URL}data/titles.bin`)
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
     const buffer = await resp.arrayBuffer()
     return new Promise<boolean>((resolve) => {
