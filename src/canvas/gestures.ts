@@ -1,7 +1,6 @@
-import type { Viewport } from './viewport.ts'
+import { getMinScale, type Viewport } from './viewport.ts'
 
 const PAN_DECEL = 0.95
-const MIN_SCALE = 0.3
 const MAX_SCALE = 3
 
 export interface GestureState {
@@ -68,7 +67,7 @@ export function setupGestures(
       const [cx, cy] = center(e.touches)
       const ratio = newDist / gs.pinchDist
 
-      const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, vp.scale * ratio))
+      const newScale = Math.min(MAX_SCALE, Math.max(getMinScale(vp), vp.scale * ratio))
       const scaleChange = newScale / vp.scale
 
       vp.offsetX = cx - (cx - vp.offsetX) * scaleChange + (cx - gs.pinchCenterX)
@@ -145,7 +144,7 @@ export function setupGestures(
   el.addEventListener('wheel', (e) => {
     e.preventDefault()
     const zoomFactor = e.deltaY > 0 ? 0.95 : 1.05
-    const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, vp.scale * zoomFactor))
+    const newScale = Math.min(MAX_SCALE, Math.max(getMinScale(vp), vp.scale * zoomFactor))
     const scaleChange = newScale / vp.scale
 
     vp.offsetX = e.clientX - (e.clientX - vp.offsetX) * scaleChange

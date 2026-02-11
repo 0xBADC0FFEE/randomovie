@@ -60,7 +60,7 @@ Output goes to `dist/`. Deploy anywhere that serves static files.
 src/
   main.ts                — entry point, wiring
   canvas/
-    viewport.ts          — coordinate math, cell ranges
+    viewport.ts          — coordinate math, cell ranges, dynamic zoom limits
     gestures.ts          — pan/pinch/zoom with inertia
     renderer.ts          — Canvas 2D render loop, culling
   engine/
@@ -77,6 +77,7 @@ scripts/
 
 - Vanilla TypeScript, Vite
 - HTML5 Canvas 2D (no WebGL, no framework)
+- Dynamic zoom limit — max ~78 visible posters to prevent rendering lag
 - Posters from TMDB CDN (`image.tmdb.org`)
 - Movie embeddings: [Remsky/Embeddings__Ultimate_1Million_Movies_Dataset](https://huggingface.co/datasets/Remsky/Embeddings__Ultimate_1Million_Movies_Dataset)
 

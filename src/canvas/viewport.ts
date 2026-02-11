@@ -41,6 +41,13 @@ export function getVisibleRange(vp: Viewport, buffer = 2): CellRange {
 }
 
 /** Center viewport on cell (0,0) */
+export const MAX_VISIBLE_CELLS = 78
+
+export function getMinScale(vp: Viewport): number {
+  return Math.sqrt((vp.width * vp.height) / (CELL_W * CELL_H * MAX_VISIBLE_CELLS))
+}
+
+/** Center viewport on cell (0,0) */
 export function centerOn(vp: Viewport, col: number, row: number): void {
   vp.offsetX = vp.width / 2 - (col + 0.5) * CELL_W * vp.scale
   vp.offsetY = vp.height / 2 - (row + 0.5) * CELL_H * vp.scale
