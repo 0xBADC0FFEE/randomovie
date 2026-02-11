@@ -6,6 +6,7 @@ import { generateMockIndex, parseEmbeddings } from './engine/embeddings.ts'
 import type { EmbeddingsIndex } from './engine/embeddings.ts'
 import { setOnLoad, evictImages, clearAllImages } from './canvas/poster-loader.ts'
 import { createAnimation, animateViewport } from './canvas/animation.ts'
+import { createDebugOverlay, type DebugOverlay } from './debug/overlay.ts'
 
 function getSafeAreaTop(): number {
   const el = document.createElement('div')
@@ -75,6 +76,8 @@ let searchDebounceId = 0
 let fillDebounceId = 0
 let fillPending = false
 let idleId = 0
+let debugOverlay: DebugOverlay | null =
+  new URLSearchParams(location.search).has('debug') ? createDebugOverlay() : null
 
 function cancelIdleFill() {
   if (idleId) { cIC(idleId); idleId = 0 }
@@ -145,6 +148,7 @@ function update() {
   evictOutside(grid, getVisibleRange(vp, EVICT_BUFFER), evictImages)
   preloadPosters(vp, grid)
   scheduleIdleFill()
+  debugOverlay?.update(vp, gs, grid)
 }
 
 /** Find cell col,row closest to screen center */
@@ -313,6 +317,22 @@ async function init() {
 
   centerOn(vp, 0, 0)
   setupGestures(canvas, vp, gs, scheduleRender)
+
+  // 2-finger double-tap toggles debug overlay
+  let lastDblTouchTime = 0
+  canvas.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 2) return
+    const now = performance.now()
+    if (now - lastDblTouchTime < 400) {
+      if (!debugOverlay) debugOverlay = createDebugOverlay()
+      debugOverlay.toggle()
+      scheduleRender()
+      lastDblTouchTime = 0
+    } else {
+      lastDblTouchTime = now
+    }
+  })
+
   setupSearch()
   scheduleRender()
 }

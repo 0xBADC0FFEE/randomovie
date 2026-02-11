@@ -82,11 +82,19 @@ src/
     embeddings.ts        — .bin parser, brute-force search
     search.worker.ts     — fuzzy title search (Web Worker)
     titles.ts            — titles.bin parser
+  debug/
+    overlay.ts             — FPS/viewport/grid debug HUD (2-finger double-tap)
   canvas/
     poster-loader.ts     — image cache keyed by grid cell, adaptive LOD
 scripts/
   pipeline.py            — Kaggle → Ollama embeddings → UMAP → quantize → .bin
 ```
+
+## Debug mode
+
+Activate: 2-finger double-tap on touchscreen, or add `?debug` to URL.
+
+Shows a minimap overlay (top-left corner) where each cell is colored by its embedding — similar movies share similar hues. A cyan rectangle marks the current viewport. Useful for visualizing how the similarity algorithm fills the grid.
 
 ## Tech
 

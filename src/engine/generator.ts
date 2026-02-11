@@ -8,6 +8,8 @@ const NEIGHBOR_RADIUS = 3
 const TOP_K = 10
 const MOMENTUM = 0.5
 
+export const lastGenStats = { neighborCount: 0, noise: 0, diversityMode: false }
+
 export function generateMovie(
   col: number,
   row: number,
@@ -29,6 +31,9 @@ export function generateMovie(
 
   // No neighbors — pick random
   if (neighbors.length === 0) {
+    lastGenStats.neighborCount = 0
+    lastGenStats.noise = 0
+    lastGenStats.diversityMode = false
     return pickRandom(index, grid.onScreen)
   }
 
@@ -88,6 +93,9 @@ export function generateMovie(
 
   // Add noise (reduced in coherent mode, amplified in diversity mode)
   const noise = coherent ? 0.05 : diversityMode ? NOISE_FACTOR * 4 : NOISE_FACTOR
+  lastGenStats.neighborCount = neighbors.length
+  lastGenStats.noise = noise
+  lastGenStats.diversityMode = diversityMode
   for (let j = 0; j < EMBED_DIM; j++) {
     target[j] += (Math.random() - 0.5) * 255 * noise
     target[j] = Math.max(0, Math.min(255, target[j]))
