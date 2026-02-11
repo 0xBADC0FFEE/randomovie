@@ -60,10 +60,25 @@ let searchDebounceId = 0
 let fillDebounceId = 0
 let fillPending = false
 
-setOnLoad(() => scheduleRender())
+let repaintScheduled = false
+function scheduleRepaint() {
+  if (repaintScheduled || renderScheduled) return
+  repaintScheduled = true
+  requestAnimationFrame(() => {
+    repaintScheduled = false
+    render(ctx, vp, grid)
+  })
+}
+
+setOnLoad(() => scheduleRepaint())
 
 let renderScheduled = false
-function scheduleRender() {
+function scheduleRender(immediate?: boolean) {
+  if (immediate) {
+    renderScheduled = false
+    update()
+    return
+  }
   if (renderScheduled) return
   renderScheduled = true
   requestAnimationFrame(() => {
@@ -74,17 +89,19 @@ function scheduleRender() {
 
 function update() {
   const visibleRange = getVisibleRange(vp)
-  const preloadRange = getVisibleRange(vp, PRELOAD_BUFFER)
 
-  if (!fillPending) {
-    const n = fillRange(grid, visibleRange, index, false, FILL_PER_FRAME)
+  let n = 0
+  if (!fillPending) n = fillRange(grid, visibleRange, index, false, gs.active ? 3 : FILL_PER_FRAME)
+
+  render(ctx, vp, grid)
+
+  if (!fillPending && !gs.active) {
     const left = FILL_PER_FRAME - n
-    const n2 = left > 0 ? fillRange(grid, preloadRange, index, false, left) : 0
-    if (n + n2 >= FILL_PER_FRAME) scheduleRender()
+    if (left > 0) n += fillRange(grid, getVisibleRange(vp, PRELOAD_BUFFER), index, false, left)
   }
 
+  if (n > 0) scheduleRender()
   evictOutside(grid, getVisibleRange(vp, EVICT_BUFFER), evictImages)
-  render(ctx, vp, grid)
   preloadPosters(vp, grid)
 }
 

@@ -6,6 +6,7 @@ const MAX_SCALE = 3
 export interface GestureState {
   panning: boolean
   pinching: boolean
+  active: boolean
   lastX: number
   lastY: number
   velocityX: number
@@ -19,7 +20,7 @@ export interface GestureState {
 
 export function createGestureState(): GestureState {
   return {
-    panning: false, pinching: false,
+    panning: false, pinching: false, active: false,
     lastX: 0, lastY: 0,
     velocityX: 0, velocityY: 0,
     pinchDist: 0, pinchCenterX: 0, pinchCenterY: 0,
@@ -42,7 +43,7 @@ export function setupGestures(
   el: HTMLCanvasElement,
   vp: Viewport,
   gs: GestureState,
-  onUpdate: () => void,
+  onUpdate: (immediate?: boolean) => void,
 ) {
   el.addEventListener('touchstart', (e) => {
     e.preventDefault()
@@ -52,11 +53,13 @@ export function setupGestures(
 
     if (e.touches.length === 1) {
       gs.panning = true
+      gs.active = true
       gs.lastX = e.touches[0].clientX
       gs.lastY = e.touches[0].clientY
     } else if (e.touches.length === 2) {
       gs.panning = false
       gs.pinching = true
+      gs.active = true
       gs.pinchDist = dist(e.touches)
       ;[gs.pinchCenterX, gs.pinchCenterY] = center(e.touches)
     }
@@ -101,6 +104,7 @@ export function setupGestures(
     if (e.touches.length === 0) {
       gs.panning = false
       gs.pinching = false
+      gs.active = false
       startInertia(vp, gs, onUpdate)
     } else if (e.touches.length === 1) {
       gs.pinching = false
@@ -115,6 +119,7 @@ export function setupGestures(
   el.addEventListener('mousedown', (e) => {
     if (gs.disabled) return
     mouseDown = true
+    gs.active = true
     cancelAnimationFrame(gs.animId)
     gs.velocityX = gs.velocityY = 0
     gs.lastX = e.clientX
@@ -136,12 +141,14 @@ export function setupGestures(
 
   el.addEventListener('mouseup', () => {
     mouseDown = false
+    gs.active = false
     startInertia(vp, gs, onUpdate)
   })
 
   el.addEventListener('mouseleave', () => {
     if (mouseDown) {
       mouseDown = false
+      gs.active = false
       startInertia(vp, gs, onUpdate)
     }
   })
@@ -160,14 +167,14 @@ export function setupGestures(
   }, { passive: false })
 }
 
-function startInertia(vp: Viewport, gs: GestureState, onUpdate: () => void) {
+function startInertia(vp: Viewport, gs: GestureState, onUpdate: (immediate?: boolean) => void) {
   function tick() {
     gs.velocityX *= PAN_DECEL
     gs.velocityY *= PAN_DECEL
     if (Math.abs(gs.velocityX) < 0.5 && Math.abs(gs.velocityY) < 0.5) return
     vp.offsetX += gs.velocityX
     vp.offsetY += gs.velocityY
-    onUpdate()
+    onUpdate(true)
     gs.animId = requestAnimationFrame(tick)
   }
   gs.animId = requestAnimationFrame(tick)
