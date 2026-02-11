@@ -42,20 +42,33 @@ export function setCell(grid: Grid, col: number, row: number, cell: MovieCell) {
   grid.filledRange.maxRow = Math.max(grid.filledRange.maxRow, row)
 }
 
-/** Fill empty cells within range. Returns number of cells generated. */
+/** Fill empty cells within range, spiraling outward from center.
+ *  Ensures cells closest to center fill first — critical after search
+ *  when only one seed cell exists, so similarity propagates outward. */
 export function fillRange(
   grid: Grid, range: CellRange, index: EmbeddingsIndex,
   coherent = false, maxNew = Infinity,
 ): number {
-  let generated = 0
+  const cx = (range.minCol + range.maxCol) / 2
+  const cy = (range.minRow + range.maxRow) / 2
+
+  const coords: [number, number][] = []
   for (let row = range.minRow; row <= range.maxRow; row++) {
     for (let col = range.minCol; col <= range.maxCol; col++) {
-      if (grid.cells.has(key(col, row))) continue
-      if (generated >= maxNew) return generated
-      const cell = generateMovie(col, row, grid, index, coherent)
-      if (cell) setCell(grid, col, row, cell)
-      generated++
+      coords.push([col, row])
     }
+  }
+  coords.sort((a, b) =>
+    (a[0] - cx) ** 2 + (a[1] - cy) ** 2 - (b[0] - cx) ** 2 - (b[1] - cy) ** 2
+  )
+
+  let generated = 0
+  for (const [col, row] of coords) {
+    if (grid.cells.has(key(col, row))) continue
+    if (generated >= maxNew) return generated
+    const cell = generateMovie(col, row, grid, index, coherent)
+    if (cell) setCell(grid, col, row, cell)
+    generated++
   }
   return generated
 }
