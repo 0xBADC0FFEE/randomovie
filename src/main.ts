@@ -1,4 +1,4 @@
-import { createViewport, centerOn, getVisibleRange, getDirectionalRange, PRELOAD_BUFFER, CELL_W, CELL_H, screenToWorld } from './canvas/viewport.ts'
+import { createViewport, centerOn, getVisibleRange, PRELOAD_BUFFER, CELL_W, CELL_H, screenToWorld } from './canvas/viewport.ts'
 import { createGestureState, setupGestures } from './canvas/gestures.ts'
 import { render, preloadPosters } from './canvas/renderer.ts'
 import { createGrid, fillRange, evictOutside, clearGrid, setCell } from './engine/grid.ts'
@@ -8,7 +8,7 @@ import { setOnLoad, evictImages, clearAllImages } from './canvas/poster-loader.t
 import { createAnimation, animateViewport } from './canvas/animation.ts'
 
 const EVICT_BUFFER = 8
-const FILL_PER_FRAME = 3
+const FILL_PER_FRAME = 6
 const SEARCH_DEBOUNCE = 150
 const FILL_DELAY = 300
 
@@ -73,22 +73,19 @@ function scheduleRender() {
 }
 
 function update() {
-  // Visible cells: fill all immediately (small range, fast)
   const visibleRange = getVisibleRange(vp)
-  if (!fillPending) fillRange(grid, visibleRange, index)
+  const preloadRange = getVisibleRange(vp, PRELOAD_BUFFER)
 
-  // Preload cells: budget-limited, spread across frames
-  const preloadRange = getDirectionalRange(vp, PRELOAD_BUFFER, gs.velocityX, gs.velocityY)
   if (!fillPending) {
-    const done = fillRange(grid, preloadRange, index, false, FILL_PER_FRAME)
-    if (!done) scheduleRender()
+    const n = fillRange(grid, visibleRange, index, false, FILL_PER_FRAME)
+    const left = FILL_PER_FRAME - n
+    const n2 = left > 0 ? fillRange(grid, preloadRange, index, false, left) : 0
+    if (n + n2 >= FILL_PER_FRAME) scheduleRender()
   }
 
-  const evictRange = getDirectionalRange(vp, EVICT_BUFFER, gs.velocityX, gs.velocityY)
-  evictOutside(grid, evictRange, evictImages)
-
+  evictOutside(grid, getVisibleRange(vp, EVICT_BUFFER), evictImages)
   render(ctx, vp, grid)
-  preloadPosters(vp, grid, gs.velocityX, gs.velocityY)
+  preloadPosters(vp, grid)
 }
 
 /** Find cell col,row closest to screen center */
@@ -177,7 +174,7 @@ function handleWorkerMessage(e: MessageEvent) {
     clearTimeout(fillDebounceId)
     fillPending = true
     fillDebounceId = window.setTimeout(() => {
-      const range = getDirectionalRange(vp, PRELOAD_BUFFER, gs.velocityX, gs.velocityY)
+      const range = getVisibleRange(vp, PRELOAD_BUFFER)
       fillRange(grid, range, index, true)
       fillPending = false
       scheduleRender()

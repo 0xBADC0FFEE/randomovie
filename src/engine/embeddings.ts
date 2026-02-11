@@ -40,14 +40,18 @@ export function parseEmbeddings(buffer: ArrayBuffer): EmbeddingsIndex {
   return { movies }
 }
 
-/** Brute-force find top-K closest movies to target vector */
+/** Brute-force find top-K closest movies to target vector.
+ *  Single-pass selection: O(n) scan + O(K) updates per candidate. */
 export function findTopK(
   index: EmbeddingsIndex,
   target: Float32Array,
   k: number,
   exclude: Set<number>,
 ): MovieEntry[] {
-  const scored: { movie: MovieEntry; dist: number }[] = []
+  const topMovies: (MovieEntry | null)[] = new Array(k).fill(null)
+  const topDist: Float64Array = new Float64Array(k).fill(Infinity)
+  let worstIdx = 0
+  let worstDist = Infinity
 
   for (const movie of index.movies) {
     if (exclude.has(movie.tmdbId)) continue
@@ -56,11 +60,29 @@ export function findTopK(
       const diff = target[j] - movie.embedding[j]
       d += diff * diff
     }
-    scored.push({ movie, dist: d })
+    if (d >= worstDist) continue
+
+    topMovies[worstIdx] = movie
+    topDist[worstIdx] = d
+
+    // find new worst in K-best
+    worstIdx = 0
+    worstDist = topDist[0]
+    for (let i = 1; i < k; i++) {
+      if (topDist[i] > worstDist) {
+        worstDist = topDist[i]
+        worstIdx = i
+      }
+    }
   }
 
-  scored.sort((a, b) => a.dist - b.dist)
-  return scored.slice(0, k).map((s) => s.movie)
+  // collect non-null results, sort by distance
+  const results: { movie: MovieEntry; dist: number }[] = []
+  for (let i = 0; i < k; i++) {
+    if (topMovies[i]) results.push({ movie: topMovies[i]!, dist: topDist[i] })
+  }
+  results.sort((a, b) => a.dist - b.dist)
+  return results.map(r => r.movie)
 }
 
 /** Generate mock data for development */

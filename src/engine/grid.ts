@@ -42,22 +42,22 @@ export function setCell(grid: Grid, col: number, row: number, cell: MovieCell) {
   grid.filledRange.maxRow = Math.max(grid.filledRange.maxRow, row)
 }
 
-/** Fill empty cells within range. Returns true if all filled, false if budget exhausted. */
+/** Fill empty cells within range. Returns number of cells generated. */
 export function fillRange(
   grid: Grid, range: CellRange, index: EmbeddingsIndex,
   coherent = false, maxNew = Infinity,
-): boolean {
+): number {
   let generated = 0
   for (let row = range.minRow; row <= range.maxRow; row++) {
     for (let col = range.minCol; col <= range.maxCol; col++) {
       if (grid.cells.has(key(col, row))) continue
-      if (generated >= maxNew) return false
+      if (generated >= maxNew) return generated
       const cell = generateMovie(col, row, grid, index, coherent)
       if (cell) setCell(grid, col, row, cell)
       generated++
     }
   }
-  return true
+  return generated
 }
 
 /** Evict cells outside viewport + buffer. Frees memory for distant cells. */
