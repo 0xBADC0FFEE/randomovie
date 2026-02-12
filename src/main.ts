@@ -79,6 +79,7 @@ let fillCoherent = false
 let fillDebounceId = 0
 let fillPending = false
 let idleId = 0
+let suppressNextTap = false
 let debugOverlay: DebugOverlay | null =
   new URLSearchParams(location.search).has('debug') ? createDebugOverlay() : null
 
@@ -168,7 +169,7 @@ function findCenterCell(): [number, number] {
   return [Math.round(wx / CELL_W - 0.5), Math.round(wy / CELL_H - 0.5)]
 }
 
-function focusOn(col: number, row: number, seed?: MovieEntry, delay = 0) {
+function focusOn(col: number, row: number, seed?: MovieEntry, delay = 0, center = true) {
   clearGrid(grid, clearAllImages)
   if (seed) {
     setCell(grid, col, row, {
@@ -180,7 +181,7 @@ function focusOn(col: number, row: number, seed?: MovieEntry, delay = 0) {
   } else {
     fillCoherent = false
   }
-  centerOn(vp, col, row)
+  if (center) centerOn(vp, col, row)
 
   if (delay > 0) {
     fillPending = true
@@ -330,6 +331,7 @@ function setupSearch() {
 }
 
 function openMovieLink(sx: number, sy: number) {
+  if (suppressNextTap) { suppressNextTap = false; return }
   if (searchMode || !titlesIndex) return
   const [wx, wy] = screenToWorld(vp, sx, sy)
   const col = Math.floor(wx / CELL_W)
@@ -341,6 +343,17 @@ function openMovieLink(sx: number, sy: number) {
   const imdbNum = titlesIndex.imdbNums[idx]
   if (!imdbNum) return
   window.open(`https://www.imdb.com/title/tt${String(imdbNum).padStart(7, '0')}/`, '_blank')
+}
+
+function handleLongPress(sx: number, sy: number) {
+  if (searchMode) return
+  const [wx, wy] = screenToWorld(vp, sx, sy)
+  const col = Math.floor(wx / CELL_W)
+  const row = Math.floor(wy / CELL_H)
+  const cell = grid.cells.get(`${col}:${row}`)
+  if (!cell) return
+  suppressNextTap = true
+  focusOn(col, row, { tmdbId: cell.tmdbId, posterPath: cell.posterPath, embedding: cell.embedding }, FILL_DELAY, false)
 }
 
 async function init() {
@@ -361,6 +374,44 @@ async function init() {
 
   focusOn(0, 0)
   setupGestures(canvas, vp, gs, scheduleRender, openMovieLink)
+
+  // Long-press (1s) → refresh grid around pressed card
+  let lpTimer = 0
+  let lpStartX = 0
+  let lpStartY = 0
+
+  canvas.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) { clearTimeout(lpTimer); lpTimer = 0; return }
+    const t = e.touches[0]
+    lpStartX = t.clientX
+    lpStartY = t.clientY
+    lpTimer = window.setTimeout(() => { lpTimer = 0; handleLongPress(lpStartX, lpStartY) }, 1000)
+  }, { passive: true })
+
+  canvas.addEventListener('touchmove', (e) => {
+    if (!lpTimer) return
+    const t = e.touches[0]
+    const dx = t.clientX - lpStartX
+    const dy = t.clientY - lpStartY
+    if (dx * dx + dy * dy > 100) { clearTimeout(lpTimer); lpTimer = 0 }
+  }, { passive: true })
+
+  canvas.addEventListener('touchend', () => { clearTimeout(lpTimer); lpTimer = 0 })
+
+  canvas.addEventListener('mousedown', (e) => {
+    lpStartX = e.clientX
+    lpStartY = e.clientY
+    lpTimer = window.setTimeout(() => { lpTimer = 0; handleLongPress(lpStartX, lpStartY) }, 1000)
+  })
+
+  canvas.addEventListener('mousemove', (e) => {
+    if (!lpTimer) return
+    const dx = e.clientX - lpStartX
+    const dy = e.clientY - lpStartY
+    if (dx * dx + dy * dy > 100) { clearTimeout(lpTimer); lpTimer = 0 }
+  })
+
+  canvas.addEventListener('mouseup', () => { clearTimeout(lpTimer); lpTimer = 0 })
 
   // 2-finger double-tap toggles debug overlay
   let lastDblTouchTime = 0
