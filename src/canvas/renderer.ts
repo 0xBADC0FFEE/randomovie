@@ -3,12 +3,15 @@ import { CELL_W, CELL_H, PRELOAD_BUFFER, getVisibleRange, worldToScreen } from '
 import type { Grid } from '../engine/grid.ts'
 import type { TitlesIndex } from '../engine/titles.ts'
 import * as Posters from './poster-loader.ts'
+import type { WaveState } from './wave.ts'
+import { updateWave, cellOpacity } from './wave.ts'
 
 function drawRating(
   ctx: CanvasRenderingContext2D,
   rating: number | undefined,
   sx: number, sy: number,
   w: number, h: number,
+  baseAlpha = 1,
 ) {
   const r = rating ?? -1
   const has = r >= 0
@@ -21,7 +24,7 @@ function drawRating(
 
   ctx.globalCompositeOperation = 'difference'
   ctx.fillStyle = '#fff'
-  ctx.globalAlpha = has ? 0.4 : 0.08
+  ctx.globalAlpha = (has ? 0.4 : 0.08) * baseAlpha
 
   const numPts = t < 0.5 ? 32 : t < 0.8 ? 4 : 5
   const starness = Math.min(1, t * 1.5)
@@ -42,7 +45,7 @@ function drawRating(
   ctx.fill()
 
   ctx.globalCompositeOperation = 'source-over'
-  ctx.globalAlpha = 1
+  ctx.globalAlpha = baseAlpha
 }
 
 export function render(
@@ -50,6 +53,7 @@ export function render(
   vp: Viewport,
   grid: Grid,
   titlesIndex?: TitlesIndex | null,
+  wave?: WaveState | null,
 ) {
   ctx.clearRect(0, 0, vp.width, vp.height)
 
@@ -59,6 +63,9 @@ export function render(
 
   const dpr = window.devicePixelRatio || 1
   const size = Posters.pickSize(vp.scale, dpr)
+
+  const now = wave ? performance.now() : 0
+  if (wave) updateWave(wave, now, grid, size)
 
   const toLoad: { col: number; row: number; cellKey: string; posterPath: string }[] = []
   const cx = (range.minCol + range.maxCol) / 2
@@ -80,6 +87,22 @@ export function render(
         continue
       }
 
+      // Wave: determine cell opacity
+      let alpha = 1
+      if (wave) {
+        alpha = cellOpacity(wave, col, row, now)
+        if (alpha <= 0) {
+          // Still queue poster load for hidden cells
+          if (!Posters.get(cellKey, size)) {
+            toLoad.push({ col, row, cellKey, posterPath: cell.posterPath })
+          }
+          continue
+        }
+      }
+
+      const needAlpha = alpha < 1
+      if (needAlpha) ctx.globalAlpha = alpha
+
       const img = Posters.getBestAvailable(cellKey, size)
       if (img) {
         ctx.drawImage(img, sx, sy, cellScreenW, cellScreenH)
@@ -99,8 +122,10 @@ export function render(
       if (titlesIndex) {
         const idx = titlesIndex.idToIdx.get(cell.tmdbId)
         const rating = idx !== undefined ? titlesIndex.ratings[idx] : undefined
-        drawRating(ctx, rating, sx, sy, cellScreenW, cellScreenH)
+        drawRating(ctx, rating, sx, sy, cellScreenW, cellScreenH, alpha)
       }
+
+      if (needAlpha) ctx.globalAlpha = 1
     }
   }
 

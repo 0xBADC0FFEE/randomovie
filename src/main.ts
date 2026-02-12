@@ -5,6 +5,8 @@ import { createGrid, fillRange, evictOutside, clearGrid, setCell } from './engin
 import { generateMockIndex, parseEmbeddings } from './engine/embeddings.ts'
 import type { EmbeddingsIndex, MovieEntry } from './engine/embeddings.ts'
 import { setOnLoad, evictImages, clearAllImages, stash, restore } from './canvas/poster-loader.ts'
+import { startWave, isWaveDone } from './canvas/wave.ts'
+import type { WaveState } from './canvas/wave.ts'
 import { createAnimation, animateViewport } from './canvas/animation.ts'
 import { createDebugOverlay, type DebugOverlay } from './debug/overlay.ts'
 import type { TitlesIndex } from './engine/titles.ts'
@@ -80,6 +82,7 @@ let fillDebounceId = 0
 let fillPending = false
 let idleId = 0
 let suppressNextTap = false
+let activeWave: WaveState | null = null
 let debugOverlay: DebugOverlay | null =
   new URLSearchParams(location.search).has('debug') ? createDebugOverlay() : null
 
@@ -112,7 +115,7 @@ function scheduleRepaint() {
   repaintScheduled = true
   requestAnimationFrame(() => {
     repaintScheduled = false
-    render(ctx, vp, grid, titlesIndex)
+    render(ctx, vp, grid, titlesIndex, activeWave)
   })
 }
 
@@ -134,7 +137,11 @@ function scheduleRender(immediate?: boolean) {
 }
 
 function update() {
-  if (gs.active) cancelIdleFill()
+  if (gs.active) {
+    cancelIdleFill()
+    const speed = Math.sqrt(gs.velocityX ** 2 + gs.velocityY ** 2)
+    if (activeWave && speed > 1) activeWave = null
+  }
 
   let n = 0
   if (!fillPending) {
@@ -154,7 +161,15 @@ function update() {
     }
   }
 
-  render(ctx, vp, grid, titlesIndex)
+  render(ctx, vp, grid, titlesIndex, activeWave)
+
+  if (activeWave) {
+    if (isWaveDone(activeWave, performance.now())) {
+      activeWave = null
+    } else {
+      scheduleRender()
+    }
+  }
 
   if (n > 0) scheduleRender()
   evictOutside(grid, getVisibleRange(vp, EVICT_BUFFER), evictImages)
@@ -170,6 +185,7 @@ function findCenterCell(): [number, number] {
 }
 
 function focusOn(col: number, row: number, seed?: MovieEntry, delay = 0, center = true) {
+  activeWave = null
   clearGrid(grid, clearAllImages)
   if (seed) {
     setCell(grid, col, row, {
@@ -372,6 +388,14 @@ function handleLongPress(sx: number, sy: number) {
   // Fill entire visible range NOW (no budget limit)
   fillRange(grid, getVisibleRange(vp, PRELOAD_BUFFER), index, true)
 
+  // Start wave reveal animation
+  const range = getVisibleRange(vp)
+  const maxRing = Math.max(
+    col - range.minCol, range.maxCol - col,
+    row - range.minRow, range.maxRow - row,
+  )
+  activeWave = startWave(col, row, maxRing)
+
   scheduleRender()
 }
 
@@ -394,7 +418,7 @@ async function init() {
   focusOn(0, 0)
   setupGestures(canvas, vp, gs, scheduleRender, openMovieLink)
 
-  // Long-press (1s) → refresh grid around pressed card
+  // Long-press (500ms) → refresh grid around pressed card
   let lpTimer = 0
   let lpStartX = 0
   let lpStartY = 0
@@ -404,7 +428,7 @@ async function init() {
     const t = e.touches[0]
     lpStartX = t.clientX
     lpStartY = t.clientY
-    lpTimer = window.setTimeout(() => { lpTimer = 0; handleLongPress(lpStartX, lpStartY) }, 1000)
+    lpTimer = window.setTimeout(() => { lpTimer = 0; handleLongPress(lpStartX, lpStartY) }, 500)
   }, { passive: true })
 
   canvas.addEventListener('touchmove', (e) => {
@@ -420,7 +444,7 @@ async function init() {
   canvas.addEventListener('mousedown', (e) => {
     lpStartX = e.clientX
     lpStartY = e.clientY
-    lpTimer = window.setTimeout(() => { lpTimer = 0; handleLongPress(lpStartX, lpStartY) }, 1000)
+    lpTimer = window.setTimeout(() => { lpTimer = 0; handleLongPress(lpStartX, lpStartY) }, 500)
   })
 
   canvas.addEventListener('mousemove', (e) => {
