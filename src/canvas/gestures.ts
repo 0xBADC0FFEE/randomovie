@@ -171,7 +171,10 @@ function startInertia(vp: Viewport, gs: GestureState, onUpdate: (immediate?: boo
   function tick() {
     gs.velocityX *= PAN_DECEL
     gs.velocityY *= PAN_DECEL
-    if (Math.abs(gs.velocityX) < 0.5 && Math.abs(gs.velocityY) < 0.5) return
+    if (Math.abs(gs.velocityX) < 0.5 && Math.abs(gs.velocityY) < 0.5) {
+      onUpdate()
+      return
+    }
     vp.offsetX += gs.velocityX
     vp.offsetY += gs.velocityY
     onUpdate(true)

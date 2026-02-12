@@ -94,7 +94,10 @@ function scheduleIdleFill() {
       if (fillRange(grid, range, index, false, 1) === 0) return
       n++
     }
-    if (n > 0) scheduleRepaint()
+    if (n > 0) {
+      scheduleRepaint()
+      preloadPosters(vp, grid)
+    }
     scheduleIdleFill()
   })
 }
@@ -138,7 +141,7 @@ function update() {
       // visible cells already exist from pass 1 → skipped → budget only for buffer
       n += fillRange(grid, getVisibleRange(vp, GESTURE_BUFFER), index, false, GESTURE_FILL)
     } else {
-      n = fillRange(grid, getVisibleRange(vp, 0), index, false, FILL_PER_FRAME)
+      n = fillRange(grid, getVisibleRange(vp, PRELOAD_BUFFER), index, false, FILL_PER_FRAME)
     }
   }
 
