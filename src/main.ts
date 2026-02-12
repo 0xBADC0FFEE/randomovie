@@ -82,6 +82,8 @@ let fillDebounceId = 0
 let fillPending = false
 let idleId = 0
 let suppressNextTap = false
+let lpTimer = 0
+let lpInterval = 0
 let activeWave: WaveState | null = null
 let debugOverlay: DebugOverlay | null =
   new URLSearchParams(location.search).has('debug') ? createDebugOverlay() : null
@@ -140,7 +142,7 @@ function update() {
   if (gs.active) {
     cancelIdleFill()
     const speed = Math.sqrt(gs.velocityX ** 2 + gs.velocityY ** 2)
-    if (activeWave && speed > 1) activeWave = null
+    if (activeWave && speed > 1 && !lpInterval) activeWave = null
   }
 
   let n = 0
@@ -361,11 +363,8 @@ function openMovieLink(sx: number, sy: number) {
   window.open(`https://www.imdb.com/title/tt${String(imdbNum).padStart(7, '0')}/`, '_blank')
 }
 
-function handleLongPress(sx: number, sy: number) {
+function handleLongPress(col: number, row: number) {
   if (searchMode) return
-  const [wx, wy] = screenToWorld(vp, sx, sy)
-  const col = Math.floor(wx / CELL_W)
-  const row = Math.floor(wy / CELL_H)
   const cell = grid.cells.get(`${col}:${row}`)
   if (!cell) return
   suppressNextTap = true
@@ -425,8 +424,8 @@ async function init() {
   setupGestures(canvas, vp, gs, scheduleRender, openMovieLink)
 
   // Long-press (500ms) → refresh grid around pressed card
-  let lpTimer = 0
-  let lpInterval = 0
+  lpTimer = 0
+  lpInterval = 0
   let lpStartX = 0
   let lpStartY = 0
 
@@ -437,9 +436,12 @@ async function init() {
     lpStartY = t.clientY
     lpTimer = window.setTimeout(() => {
       lpTimer = 0
-      gs.disabled = true; gs.panning = false; gs.velocityX = gs.velocityY = 0; cancelAnimationFrame(gs.animId)
-      handleLongPress(lpStartX, lpStartY)
-      lpInterval = window.setInterval(() => handleLongPress(lpStartX, lpStartY), 2000)
+      gs.panning = false; gs.velocityX = gs.velocityY = 0; cancelAnimationFrame(gs.animId)
+      const [wx, wy] = screenToWorld(vp, lpStartX, lpStartY)
+      const c = Math.floor(wx / CELL_W), r = Math.floor(wy / CELL_H)
+      handleLongPress(c, r)
+      lpInterval = window.setInterval(() => handleLongPress(c, r), 2000)
+      gs.panning = true
     }, 1000)
   }, { passive: true })
 
@@ -448,19 +450,21 @@ async function init() {
     const t = e.touches[0]
     const dx = t.clientX - lpStartX
     const dy = t.clientY - lpStartY
-    if (lpTimer && dx * dx + dy * dy > 100) { clearTimeout(lpTimer); lpTimer = 0; gs.disabled = false }
+    if (lpTimer && dx * dx + dy * dy > 100) { clearTimeout(lpTimer); lpTimer = 0 }
   }, { passive: true })
 
-  canvas.addEventListener('touchend', () => { clearTimeout(lpTimer); lpTimer = 0; clearInterval(lpInterval); lpInterval = 0; gs.disabled = false })
+  canvas.addEventListener('touchend', () => { clearTimeout(lpTimer); lpTimer = 0; clearInterval(lpInterval); lpInterval = 0 })
 
   canvas.addEventListener('mousedown', (e) => {
     lpStartX = e.clientX
     lpStartY = e.clientY
     lpTimer = window.setTimeout(() => {
       lpTimer = 0
-      gs.disabled = true; gs.panning = false; gs.velocityX = gs.velocityY = 0; cancelAnimationFrame(gs.animId)
-      handleLongPress(lpStartX, lpStartY)
-      lpInterval = window.setInterval(() => handleLongPress(lpStartX, lpStartY), 2000)
+      gs.panning = false; gs.velocityX = gs.velocityY = 0; cancelAnimationFrame(gs.animId)
+      const [wx, wy] = screenToWorld(vp, lpStartX, lpStartY)
+      const c = Math.floor(wx / CELL_W), r = Math.floor(wy / CELL_H)
+      handleLongPress(c, r)
+      lpInterval = window.setInterval(() => handleLongPress(c, r), 2000)
     }, 1000)
   })
 
@@ -468,10 +472,10 @@ async function init() {
     if (!lpTimer && !lpInterval) return
     const dx = e.clientX - lpStartX
     const dy = e.clientY - lpStartY
-    if (lpTimer && dx * dx + dy * dy > 100) { clearTimeout(lpTimer); lpTimer = 0; gs.disabled = false }
+    if (lpTimer && dx * dx + dy * dy > 100) { clearTimeout(lpTimer); lpTimer = 0 }
   })
 
-  canvas.addEventListener('mouseup', () => { clearTimeout(lpTimer); lpTimer = 0; clearInterval(lpInterval); lpInterval = 0; gs.disabled = false })
+  canvas.addEventListener('mouseup', () => { clearTimeout(lpTimer); lpTimer = 0; clearInterval(lpInterval); lpInterval = 0 })
 
   // 2-finger double-tap toggles debug overlay
   let lastDblTouchTime = 0
