@@ -19,8 +19,9 @@ function drawRating(
   const TAU = Math.PI * 2
   const R = 7 * s
 
+  ctx.globalCompositeOperation = 'difference'
   ctx.fillStyle = '#fff'
-  ctx.globalAlpha = has ? 0.3 : 0.08
+  ctx.globalAlpha = has ? 0.4 : 0.08
 
   const numPts = t < 0.5 ? 32 : t < 0.8 ? 4 : 5
   const starness = Math.min(1, t * 1.5)
@@ -40,6 +41,7 @@ function drawRating(
   }
   ctx.fill()
 
+  ctx.globalCompositeOperation = 'source-over'
   ctx.globalAlpha = 1
 }
 
