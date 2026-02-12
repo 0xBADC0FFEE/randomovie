@@ -111,7 +111,7 @@ function scheduleRepaint() {
   repaintScheduled = true
   requestAnimationFrame(() => {
     repaintScheduled = false
-    render(ctx, vp, grid)
+    render(ctx, vp, grid, titlesIndex)
   })
 }
 
@@ -153,7 +153,7 @@ function update() {
     }
   }
 
-  render(ctx, vp, grid)
+  render(ctx, vp, grid, titlesIndex)
 
   if (n > 0) scheduleRender()
   evictOutside(grid, getVisibleRange(vp, EVICT_BUFFER), evictImages)
