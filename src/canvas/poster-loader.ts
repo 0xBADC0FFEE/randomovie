@@ -89,6 +89,14 @@ export function evictImages(keys: string[]) {
   }
 }
 
+export function stash(cellKey: string) {
+  return store.get(cellKey)
+}
+
+export function restore(cellKey: string, imgs: Map<TmdbSize, HTMLImageElement>) {
+  store.set(cellKey, imgs)
+}
+
 export function clearAllImages() {
   store.clear()
   queue.length = 0

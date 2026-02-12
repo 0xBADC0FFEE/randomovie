@@ -4,7 +4,7 @@ import { render, preloadPosters } from './canvas/renderer.ts'
 import { createGrid, fillRange, evictOutside, clearGrid, setCell } from './engine/grid.ts'
 import { generateMockIndex, parseEmbeddings } from './engine/embeddings.ts'
 import type { EmbeddingsIndex, MovieEntry } from './engine/embeddings.ts'
-import { setOnLoad, evictImages, clearAllImages } from './canvas/poster-loader.ts'
+import { setOnLoad, evictImages, clearAllImages, stash, restore } from './canvas/poster-loader.ts'
 import { createAnimation, animateViewport } from './canvas/animation.ts'
 import { createDebugOverlay, type DebugOverlay } from './debug/overlay.ts'
 import type { TitlesIndex } from './engine/titles.ts'
@@ -353,7 +353,26 @@ function handleLongPress(sx: number, sy: number) {
   const cell = grid.cells.get(`${col}:${row}`)
   if (!cell) return
   suppressNextTap = true
-  focusOn(col, row, { tmdbId: cell.tmdbId, posterPath: cell.posterPath, embedding: cell.embedding }, FILL_DELAY, false)
+
+  const seedKey = `${col}:${row}`
+  const savedImgs = stash(seedKey)
+
+  // Inline focusOn without fillPending delay
+  clearGrid(grid, clearAllImages)
+  setCell(grid, col, row, {
+    tmdbId: cell.tmdbId,
+    posterPath: cell.posterPath,
+    embedding: cell.embedding,
+  })
+  if (savedImgs) restore(seedKey, savedImgs)
+  fillCoherent = true
+  fillPending = false
+  clearTimeout(fillDebounceId)
+
+  // Fill entire visible range NOW (no budget limit)
+  fillRange(grid, getVisibleRange(vp, PRELOAD_BUFFER), index, true)
+
+  scheduleRender()
 }
 
 async function init() {
