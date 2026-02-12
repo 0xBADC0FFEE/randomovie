@@ -20,11 +20,11 @@ function getSafeAreaTop(): number {
 
 let safeTop = 0
 
-const EVICT_BUFFER = 12
-const GESTURE_BUFFER = 5
-const GESTURE_FILL = 10
+const EVICT_BUFFER = 8
+const GESTURE_BUFFER = 4
+const GESTURE_FILL = 8
 const FILL_PER_FRAME = 6
-const IDLE_FILL_MAX = 20
+const IDLE_FILL_MAX = 16
 const SEARCH_DEBOUNCE = 150
 const FILL_DELAY = 300
 
@@ -140,8 +140,8 @@ function update() {
     if (gs.active) {
       const speed = Math.sqrt(gs.velocityX ** 2 + gs.velocityY ** 2)
       const t = Math.min(speed / 25, 1)
-      const noiseFactor = 0.08 + t * 0.42    // 0.08 → 0.5
-      const randomChance = 0.05 + t * 0.35   // 0.05 → 0.4
+      const noiseFactor = 0.08 + t * 0.72    // 0.08 → 0.8
+      const randomChance = 0.05 + t * 0.55   // 0.05 → 0.6
 
       // Pass 1: fill entire render range (no budget — cells show as empty otherwise)
       n = fillRange(grid, getVisibleRange(vp), index, false, undefined, noiseFactor, randomChance)
