@@ -440,7 +440,7 @@ async function init() {
       const [wx, wy] = screenToWorld(vp, lpStartX, lpStartY)
       const c = Math.floor(wx / CELL_W), r = Math.floor(wy / CELL_H)
       handleLongPress(c, r)
-      lpInterval = window.setInterval(() => handleLongPress(c, r), 2000)
+      lpInterval = window.setInterval(() => handleLongPress(c, r), 3000)
       gs.panning = true
     }, 1000)
   }, { passive: true })
@@ -464,7 +464,7 @@ async function init() {
       const [wx, wy] = screenToWorld(vp, lpStartX, lpStartY)
       const c = Math.floor(wx / CELL_W), r = Math.floor(wy / CELL_H)
       handleLongPress(c, r)
-      lpInterval = window.setInterval(() => handleLongPress(c, r), 2000)
+      lpInterval = window.setInterval(() => handleLongPress(c, r), 3000)
     }, 1000)
   })
 

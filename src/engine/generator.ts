@@ -95,7 +95,7 @@ export function generateMovie(
 
   // Add noise (reduced in coherent mode, amplified in diversity mode)
   const baseNoise = noiseFactor ?? NOISE_FACTOR
-  const noise = coherent ? 0.05 : diversityMode ? baseNoise * 4 : baseNoise
+  const noise = coherent ? 0.15 : diversityMode ? baseNoise * 4 : baseNoise
   lastGenStats.neighborCount = neighbors.length
   lastGenStats.noise = noise
   lastGenStats.diversityMode = diversityMode
@@ -122,8 +122,8 @@ function pickRandom(index: EmbeddingsIndex, exclude: Set<number>): MovieCell | n
 }
 
 function weightedPick(candidates: MovieEntry[]): MovieEntry {
-  // Quadratic rank weighting: strongly favors closest matches
-  const weights = candidates.map((_, i) => (candidates.length - i) ** 2)
+  // Linear rank weighting: favors closer matches but allows diversity
+  const weights = candidates.map((_, i) => candidates.length - i)
   const total = weights.reduce((a, b) => a + b, 0)
   let r = Math.random() * total
   for (let i = 0; i < candidates.length; i++) {
