@@ -420,41 +420,50 @@ async function init() {
 
   // Long-press (500ms) → refresh grid around pressed card
   let lpTimer = 0
+  let lpInterval = 0
   let lpStartX = 0
   let lpStartY = 0
 
   canvas.addEventListener('touchstart', (e) => {
-    if (e.touches.length !== 1) { clearTimeout(lpTimer); lpTimer = 0; return }
+    if (e.touches.length !== 1) { clearTimeout(lpTimer); lpTimer = 0; clearInterval(lpInterval); lpInterval = 0; return }
     const t = e.touches[0]
     lpStartX = t.clientX
     lpStartY = t.clientY
-    lpTimer = window.setTimeout(() => { lpTimer = 0; handleLongPress(lpStartX, lpStartY) }, 500)
+    lpTimer = window.setTimeout(() => {
+      lpTimer = 0
+      handleLongPress(lpStartX, lpStartY)
+      lpInterval = window.setInterval(() => handleLongPress(lpStartX, lpStartY), 2000)
+    }, 1000)
   }, { passive: true })
 
   canvas.addEventListener('touchmove', (e) => {
-    if (!lpTimer) return
+    if (!lpTimer && !lpInterval) return
     const t = e.touches[0]
     const dx = t.clientX - lpStartX
     const dy = t.clientY - lpStartY
-    if (dx * dx + dy * dy > 100) { clearTimeout(lpTimer); lpTimer = 0 }
+    if (dx * dx + dy * dy > 100) { clearTimeout(lpTimer); lpTimer = 0; clearInterval(lpInterval); lpInterval = 0 }
   }, { passive: true })
 
-  canvas.addEventListener('touchend', () => { clearTimeout(lpTimer); lpTimer = 0 })
+  canvas.addEventListener('touchend', () => { clearTimeout(lpTimer); lpTimer = 0; clearInterval(lpInterval); lpInterval = 0 })
 
   canvas.addEventListener('mousedown', (e) => {
     lpStartX = e.clientX
     lpStartY = e.clientY
-    lpTimer = window.setTimeout(() => { lpTimer = 0; handleLongPress(lpStartX, lpStartY) }, 500)
+    lpTimer = window.setTimeout(() => {
+      lpTimer = 0
+      handleLongPress(lpStartX, lpStartY)
+      lpInterval = window.setInterval(() => handleLongPress(lpStartX, lpStartY), 2000)
+    }, 1000)
   })
 
   canvas.addEventListener('mousemove', (e) => {
-    if (!lpTimer) return
+    if (!lpTimer && !lpInterval) return
     const dx = e.clientX - lpStartX
     const dy = e.clientY - lpStartY
-    if (dx * dx + dy * dy > 100) { clearTimeout(lpTimer); lpTimer = 0 }
+    if (dx * dx + dy * dy > 100) { clearTimeout(lpTimer); lpTimer = 0; clearInterval(lpInterval); lpInterval = 0 }
   })
 
-  canvas.addEventListener('mouseup', () => { clearTimeout(lpTimer); lpTimer = 0 })
+  canvas.addEventListener('mouseup', () => { clearTimeout(lpTimer); lpTimer = 0; clearInterval(lpInterval); lpInterval = 0 })
 
   // 2-finger double-tap toggles debug overlay
   let lastDblTouchTime = 0

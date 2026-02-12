@@ -4,7 +4,7 @@ import type { TmdbSize } from './poster-loader.ts'
 
 const RING_STAGGER = 80   // ms between ring reveals
 const RING_FADE = 200      // ms for opacity 0→1
-const WAVE_TIMEOUT = 1000  // ms max wait for image preloads
+const WAVE_TIMEOUT = 500   // ms max wait for image preloads
 
 export interface WaveState {
   col: number
