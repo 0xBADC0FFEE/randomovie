@@ -2,14 +2,14 @@ import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
-  base: '/randomovie/',
+  base: '/vibefind/',
   plugins: [
     VitePWA({
       registerType: 'autoUpdate',
       manifest: {
-        name: 'Randomovie',
-        short_name: 'Randomovie',
-        description: 'Explore movies on an infinite canvas',
+        name: 'Vibefind',
+        short_name: 'Vibefind',
+        description: 'Catch the feeling, skip the search.',
         theme_color: '#000000',
         background_color: '#000000',
         display: 'standalone',

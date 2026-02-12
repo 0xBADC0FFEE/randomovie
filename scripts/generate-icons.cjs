@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Generate simple PNG app icons for Randomovie.
+ * Generate simple PNG app icons for Vibefind.
  * Pure Node.js — no external dependencies. Uses zlib for DEFLATE.
  *
  * Produces a dark navy background (#1a1a2e) with a stylised film

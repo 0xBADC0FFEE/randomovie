@@ -1,4 +1,4 @@
-# Randomovie
+# Vibefind
 
 Infinite 2D canvas of movie posters. Swipe in any direction — see similar movies appear. The more you explore, the more the canvas adapts to your taste. Random movies are mixed in to keep things fresh.
 
@@ -62,7 +62,7 @@ npm run preview
 
 Output goes to `dist/`.
 
-Pushing to `main` auto-deploys to GitHub Pages via Actions. Live at **https://0xBADC0FFEE.github.io/randomovie/**
+Pushing to `main` auto-deploys to GitHub Pages via Actions. Live at **https://0xBADC0FFEE.github.io/vibefind/**
 
 Installable as a PWA (offline-capable after first load).
 
