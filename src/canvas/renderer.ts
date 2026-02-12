@@ -12,7 +12,7 @@ function drawRating(
 ) {
   const r = rating ?? -1
   const has = r >= 0
-  const t = has ? Math.max(0, (r - 50) / 50) : 0
+  const t = has ? Math.min(1, Math.max(0, (r - 50) / 30)) : 0
   const s = w / CELL_W
   const cx = sx + w * 0.85
   const cy = sy + h * 0.85
