@@ -1,4 +1,5 @@
 # Vibefind — PRD
+> Catch the feeling, skip the search.
 
 ## Problem
 
