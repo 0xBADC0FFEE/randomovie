@@ -1,6 +1,8 @@
 export interface TitlesIndex {
   titles: string[]
   tmdbIds: Uint32Array
+  imdbNums: Uint32Array
+  ratings: Uint8Array  // vote_average × 10
   idToIdx: Map<number, number>  // tmdbId → index in titles/tmdbIds
 }
 
@@ -9,6 +11,8 @@ export function parseTitles(buffer: ArrayBuffer): TitlesIndex {
   const count = view.getUint32(0, true)
   const titles: string[] = []
   const ids: number[] = []
+  const imdbNumsArr: number[] = []
+  const ratingsArr: number[] = []
   const idToIdx = new Map<number, number>()
   let offset = 4
 
@@ -16,6 +20,12 @@ export function parseTitles(buffer: ArrayBuffer): TitlesIndex {
   for (let i = 0; i < count; i++) {
     const tmdbId = view.getUint32(offset, true)
     offset += 4
+
+    const imdbNum = view.getUint32(offset, true)
+    offset += 4
+
+    const rating = view.getUint8(offset)
+    offset += 1
 
     const titleLen = view.getUint8(offset)
     offset += 1
@@ -25,10 +35,18 @@ export function parseTitles(buffer: ArrayBuffer): TitlesIndex {
     offset += titleLen
 
     ids.push(tmdbId)
+    imdbNumsArr.push(imdbNum)
+    ratingsArr.push(rating)
     idToIdx.set(tmdbId, i)
   }
 
-  return { titles, tmdbIds: new Uint32Array(ids), idToIdx }
+  return {
+    titles,
+    tmdbIds: new Uint32Array(ids),
+    imdbNums: new Uint32Array(imdbNumsArr),
+    ratings: new Uint8Array(ratingsArr),
+    idToIdx,
+  }
 }
 
 /** Find best match: word-level substring first, then word-level fuzzy. Returns tmdbId or null. */

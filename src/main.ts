@@ -7,6 +7,7 @@ import type { EmbeddingsIndex } from './engine/embeddings.ts'
 import { setOnLoad, evictImages, clearAllImages } from './canvas/poster-loader.ts'
 import { createAnimation, animateViewport } from './canvas/animation.ts'
 import { createDebugOverlay, type DebugOverlay } from './debug/overlay.ts'
+import type { TitlesIndex } from './engine/titles.ts'
 
 function getSafeAreaTop(): number {
   const el = document.createElement('div')
@@ -70,6 +71,7 @@ let searchSeq = 0
 let searchReady = false
 
 let index: EmbeddingsIndex
+let titlesIndex: TitlesIndex | null = null
 let searchMode = false
 let searchCell: [number, number] = [0, 0]
 let searchDebounceId = 0
@@ -264,9 +266,16 @@ async function loadEmbeddings(): Promise<EmbeddingsIndex> {
 
 async function loadTitles(): Promise<boolean> {
   try {
-    const resp = await fetch(`${import.meta.env.BASE_URL}data/titles.bin`)
+    const resp = await fetch(`${import.meta.env.BASE_URL}data/metadata.bin`)
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
     const buffer = await resp.arrayBuffer()
+
+    // Parse in main thread (keeps imdbNums/ratings accessible)
+    const { parseTitles } = await import('./engine/titles.ts')
+    titlesIndex = parseTitles(buffer)
+
+    // Transfer a copy to the worker (original backing data stays with main thread)
+    const workerBuffer = buffer.slice(0)
     return new Promise<boolean>((resolve) => {
       searchWorker.onmessage = (e) => {
         if (e.data.type === 'ready') {
@@ -275,10 +284,10 @@ async function loadTitles(): Promise<boolean> {
           resolve(true)
         }
       }
-      searchWorker.postMessage({ type: 'init', buffer }, [buffer])
+      searchWorker.postMessage({ type: 'init', buffer: workerBuffer }, [workerBuffer])
     })
   } catch {
-    console.warn('No titles.bin found, search disabled')
+    console.warn('No metadata.bin found, search disabled')
     return false
   }
 }
@@ -307,6 +316,20 @@ function setupSearch() {
   })
 }
 
+function openMovieLink(sx: number, sy: number) {
+  if (searchMode || !titlesIndex) return
+  const [wx, wy] = screenToWorld(vp, sx, sy)
+  const col = Math.floor(wx / CELL_W)
+  const row = Math.floor(wy / CELL_H)
+  const cell = grid.cells.get(`${col}:${row}`)
+  if (!cell) return
+  const idx = titlesIndex.idToIdx.get(cell.tmdbId)
+  if (idx === undefined) return
+  const imdbNum = titlesIndex.imdbNums[idx]
+  if (!imdbNum) return
+  window.open(`https://www.imdb.com/title/tt${String(imdbNum).padStart(7, '0')}/`, '_blank')
+}
+
 async function init() {
   safeTop = getSafeAreaTop()
   resize()
@@ -324,7 +347,7 @@ async function init() {
   }
 
   centerOn(vp, 0, 0)
-  setupGestures(canvas, vp, gs, scheduleRender)
+  setupGestures(canvas, vp, gs, scheduleRender, openMovieLink)
 
   // 2-finger double-tap toggles debug overlay
   let lastDblTouchTime = 0

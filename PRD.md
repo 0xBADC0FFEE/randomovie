@@ -16,7 +16,7 @@ Infinite 2D canvas of movie posters. No lists, no categories. You pan around, an
 3. Keep swiping toward what catches your eye → the canvas adapts
 4. Random posters sprinkled in → create new exploration paths
 5. Type to search → center poster swaps, neighbors regenerate
-6. Tap a poster → see details (title, year, rating, description)
+6. Tap a poster → opens IMDB page
 7. That's it. No accounts, no ratings, no watchlists (for now)
 
 ## How Similarity Works
@@ -31,7 +31,7 @@ Infinite 2D canvas of movie posters. No lists, no categories. You pan around, an
 
 - **No backend**: all data precomputed, served as static files from CDN
 - **Client-side only**: similarity search runs in-browser (~1ms per query)
-- **Initial download**: ~5MB (embeddings + titles + app shell), cached by Service Worker
+- **Initial download**: ~2MB (embeddings + metadata + app shell), cached by Service Worker
 - **Poster images**: loaded on demand from TMDB CDN
 - **Catalog**: ~80k movies (filtered from TMDB: has poster, >100 votes, rating >5.0)
 
@@ -55,12 +55,13 @@ PWA. Works on any phone or desktop browser. Installable to home screen.
 - [x] Cell eviction outside viewport + buffer
 - [x] Mock data fallback (works without embeddings.bin)
 - [x] Data pipeline script (Kaggle → Ollama embeddings → UMAP → quantize → .bin)
-- [x] Ship real embeddings.bin + titles.bin
+- [x] Ship real embeddings.bin + metadata.bin
 - [x] Fuzzy title search (Web Worker)
 
 ## v0.2 — next
 
-- [ ] Tap → movie detail card (overlay with title, year, rating, plot, links to streaming)
+- [x] Tap → opens IMDB page
+- [ ] Movie detail card overlay (title, year, rating, plot)
 - [ ] Service Worker for offline / instant reload
 - [ ] Loading state on first visit (while embeddings download)
 
