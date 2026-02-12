@@ -16,6 +16,8 @@ export function generateMovie(
   grid: Grid,
   index: EmbeddingsIndex,
   coherent = false,
+  noiseFactor?: number,
+  randomChance?: number,
 ): MovieCell | null {
   // Collect filled neighbors within radius
   const neighbors: { cell: MovieCell; weight: number; dc: number; dr: number }[] = []
@@ -38,7 +40,7 @@ export function generateMovie(
   }
 
   // Diversity injection: use neighbor blend with high noise instead of pure random
-  const diversityMode = !coherent && Math.random() < RANDOM_CHANCE
+  const diversityMode = !coherent && Math.random() < (randomChance ?? RANDOM_CHANCE)
 
   // Weighted average embedding
   const target = new Float32Array(EMBED_DIM)
@@ -92,7 +94,8 @@ export function generateMovie(
   }
 
   // Add noise (reduced in coherent mode, amplified in diversity mode)
-  const noise = coherent ? 0.05 : diversityMode ? NOISE_FACTOR * 4 : NOISE_FACTOR
+  const baseNoise = noiseFactor ?? NOISE_FACTOR
+  const noise = coherent ? 0.05 : diversityMode ? baseNoise * 4 : baseNoise
   lastGenStats.neighborCount = neighbors.length
   lastGenStats.noise = noise
   lastGenStats.diversityMode = diversityMode

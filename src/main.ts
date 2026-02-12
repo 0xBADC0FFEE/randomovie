@@ -135,11 +135,16 @@ function update() {
   let n = 0
   if (!fillPending) {
     if (gs.active) {
+      const speed = Math.sqrt(gs.velocityX ** 2 + gs.velocityY ** 2)
+      const t = Math.min(speed / 25, 1)
+      const noiseFactor = 0.08 + t * 0.42    // 0.08 → 0.5
+      const randomChance = 0.05 + t * 0.35   // 0.05 → 0.4
+
       // Pass 1: fill entire render range (no budget — cells show as empty otherwise)
-      n = fillRange(grid, getVisibleRange(vp), index, false)
+      n = fillRange(grid, getVisibleRange(vp), index, false, undefined, noiseFactor, randomChance)
       // Pass 2: budget-limited buffer cells for preloading
       // visible cells already exist from pass 1 → skipped → budget only for buffer
-      n += fillRange(grid, getVisibleRange(vp, GESTURE_BUFFER), index, false, GESTURE_FILL)
+      n += fillRange(grid, getVisibleRange(vp, GESTURE_BUFFER), index, false, GESTURE_FILL, noiseFactor, randomChance)
     } else {
       n = fillRange(grid, getVisibleRange(vp, PRELOAD_BUFFER), index, false, FILL_PER_FRAME)
     }

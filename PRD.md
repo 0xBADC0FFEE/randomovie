@@ -24,7 +24,7 @@ Infinite 2D canvas of movie posters. No lists, no categories. You pan around, an
 - Each movie has a 16-dimensional embedding vector (UMAP-reduced from text embeddings of plot + genres + cast)
 - When a new cell needs filling: average the embeddings of visible neighbors (weighted by proximity), add noise, find closest match
 - Scroll direction is extrapolated to continue genre trends (gradient extrapolation)
-- 5% of new cells are fully random — prevents similarity bubbles, seeds new directions
+- 5–40% of new cells inject diversity (scales with swipe speed) — prevents similarity bubbles, fast flicks explore more
 - Already-placed movies never change
 
 ## Constraints

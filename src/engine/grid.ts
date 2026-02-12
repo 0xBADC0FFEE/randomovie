@@ -48,6 +48,7 @@ export function setCell(grid: Grid, col: number, row: number, cell: MovieCell) {
 export function fillRange(
   grid: Grid, range: CellRange, index: EmbeddingsIndex,
   coherent = false, maxNew = Infinity,
+  noiseFactor?: number, randomChance?: number,
 ): number {
   const cx = (range.minCol + range.maxCol) / 2
   const cy = (range.minRow + range.maxRow) / 2
@@ -66,7 +67,7 @@ export function fillRange(
   for (const [col, row] of coords) {
     if (grid.cells.has(key(col, row))) continue
     if (generated >= maxNew) return generated
-    const cell = generateMovie(col, row, grid, index, coherent)
+    const cell = generateMovie(col, row, grid, index, coherent, noiseFactor, randomChance)
     if (cell) setCell(grid, col, row, cell)
     generated++
   }
