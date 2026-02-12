@@ -13,7 +13,6 @@ const RING_STAGGER = 80   // ms between ring bumps
 const BUMP_UP_MIN = 100    // ms ring 1 rise — snappy
 const BUMP_UP_MAX = 160    // ms outermost ring rise — gentle
 const BUMP_DOWN = 200      // ms scale peak→1
-const BUMP_PEAK = 1.40     // max scale (attenuated per ring)
 const WAVE_TIMEOUT = 500   // ms max wait for image preloads
 
 export interface OldCellData {
@@ -84,17 +83,16 @@ export function cellBump(
   if (ring === 0 || ring > wave.maxRing) return { scale: 1, useOld: false }
   const t = wave.ringStartTime[ring]
   if (t === 0) return { scale: 1, useOld: true }  // not started yet, show old
-  const amplitude = (BUMP_PEAK - 1) / ring  // inverse-distance attenuation
   const riseMs = BUMP_UP_MIN + (BUMP_UP_MAX - BUMP_UP_MIN) * ((ring - 1) / (wave.maxRing - 1))
   const elapsed = now - t
+  // Phase 1 — shrink old poster (1→0.75)
   if (elapsed < riseMs) {
-    const p = easeOutCubic(elapsed / riseMs)
-    return { scale: 1 + amplitude * p, useOld: true }
+    return { scale: 1 - 0.25 * easeOutCubic(elapsed / riseMs), useOld: true }
   }
+  // Phase 2 — grow new poster (0.75→1)
   const downElapsed = elapsed - riseMs
   if (downElapsed < BUMP_DOWN) {
-    const p = easeOutBack(downElapsed / BUMP_DOWN)
-    return { scale: (1 + amplitude) - amplitude * p, useOld: false }
+    return { scale: 0.75 + 0.25 * easeOutBack(downElapsed / BUMP_DOWN), useOld: false }
   }
   // Done
   return { scale: 1, useOld: false }
