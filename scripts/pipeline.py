@@ -8,7 +8,7 @@ Steps:
 4. Cache embeddings in scripts/embedding_cache.npz
 5. UMAP: 768-dim → 16-dim
 6. Quantize: float32 → uint8 (min-max per axis)
-7. Output: embeddings.bin + titles.bin
+7. Output: embeddings.bin + metadata.bin
 
 Usage:
     pip install kagglehub pandas numpy umap-learn requests
@@ -109,11 +109,24 @@ def filter_movies(df):
         if tmdb_id <= 0:
             continue
 
+        # IMDB ID: strip "tt" prefix, store as int (0 = missing)
+        imdb_raw = str(row.get("imdb_id") or "").strip()
+        imdb_num = 0
+        if imdb_raw.startswith("tt"):
+            try:
+                imdb_num = int(imdb_raw[2:])
+            except ValueError:
+                pass
+
+        rating_x10 = min(100, max(0, int(round(rating * 10))))
+
         filtered.append({
             "tmdb_id": tmdb_id,
             "title": title,
             "poster_path": poster,
             "text": text,
+            "imdb_num": imdb_num,
+            "rating_x10": rating_x10,
         })
 
     print(f"Kept {len(filtered)} movies after filtering")
@@ -200,26 +213,27 @@ def quantize(embeddings):
     return quantized
 
 
-def write_titles_binary(movies, output_path):
+def write_metadata_binary(movies, output_path):
     """
-    Write titles.bin:
+    Write metadata.bin:
     [count: uint32]
-    [per movie: tmdb_id: uint32, title_len: uint8, title: utf8]
+    [per movie: tmdb_id: uint32, imdb_num: uint32, rating_x10: uint8, title_len: uint8, title: utf8]
     """
     print(f"Writing {output_path}...")
     with open(output_path, "wb") as f:
         f.write(struct.pack("<I", len(movies)))
 
         for movie in movies:
-            tmdb_id = movie["tmdb_id"]
             title = movie["title"].encode("utf-8")[:255]
 
-            f.write(struct.pack("<I", tmdb_id))
+            f.write(struct.pack("<I", movie["tmdb_id"]))
+            f.write(struct.pack("<I", movie["imdb_num"]))
+            f.write(struct.pack("<B", movie["rating_x10"]))
             f.write(struct.pack("<B", len(title)))
             f.write(title)
 
     size = Path(output_path).stat().st_size
-    print(f"Written {len(movies)} titles, {size:,} bytes ({size / 1024 / 1024:.1f} MB)")
+    print(f"Written {len(movies)} metadata, {size:,} bytes ({size / 1024 / 1024:.1f} MB)")
 
 
 def write_binary(movies, quantized, output_path):
@@ -271,7 +285,7 @@ def main():
     reduced = reduce_dimensions(movies, target_dim=16)
     quantized = quantize(reduced)
     write_binary(movies, quantized, output_dir / "embeddings.bin")
-    write_titles_binary(movies, output_dir / "titles.bin")
+    write_metadata_binary(movies, output_dir / "metadata.bin")
 
     print(f"\nDone! Movies: {len(movies)}")
     print("To test: npx vite")

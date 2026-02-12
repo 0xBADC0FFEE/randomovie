@@ -44,7 +44,11 @@ export function setupGestures(
   vp: Viewport,
   gs: GestureState,
   onUpdate: (immediate?: boolean) => void,
+  onTap?: (sx: number, sy: number) => void,
 ) {
+  let touchStartX = 0, touchStartY = 0, touchStartTime = 0
+  let wasPinching = false
+
   el.addEventListener('touchstart', (e) => {
     e.preventDefault()
     if (gs.disabled) return
@@ -56,12 +60,17 @@ export function setupGestures(
       gs.active = true
       gs.lastX = e.touches[0].clientX
       gs.lastY = e.touches[0].clientY
+      touchStartX = gs.lastX
+      touchStartY = gs.lastY
+      touchStartTime = performance.now()
+      wasPinching = false
     } else if (e.touches.length === 2) {
       gs.panning = false
       gs.pinching = true
       gs.active = true
       gs.pinchDist = dist(e.touches)
       ;[gs.pinchCenterX, gs.pinchCenterY] = center(e.touches)
+      wasPinching = true
     }
   }, { passive: false })
 
@@ -102,6 +111,14 @@ export function setupGestures(
 
   el.addEventListener('touchend', (e) => {
     if (e.touches.length === 0) {
+      if (onTap && !wasPinching) {
+        const dx = gs.lastX - touchStartX
+        const dy = gs.lastY - touchStartY
+        const dt = performance.now() - touchStartTime
+        if (dx * dx + dy * dy < 100 && dt < 300) {
+          onTap(gs.lastX, gs.lastY)
+        }
+      }
       gs.panning = false
       gs.pinching = false
       gs.active = false
@@ -116,6 +133,7 @@ export function setupGestures(
 
   // Mouse support for desktop
   let mouseDown = false
+  let mouseStartX = 0, mouseStartY = 0
   el.addEventListener('mousedown', (e) => {
     if (gs.disabled) return
     mouseDown = true
@@ -124,6 +142,8 @@ export function setupGestures(
     gs.velocityX = gs.velocityY = 0
     gs.lastX = e.clientX
     gs.lastY = e.clientY
+    mouseStartX = e.clientX
+    mouseStartY = e.clientY
   })
 
   el.addEventListener('mousemove', (e) => {
@@ -139,7 +159,14 @@ export function setupGestures(
     onUpdate()
   })
 
-  el.addEventListener('mouseup', () => {
+  el.addEventListener('mouseup', (e) => {
+    if (onTap) {
+      const dx = e.clientX - mouseStartX
+      const dy = e.clientY - mouseStartY
+      if (dx * dx + dy * dy < 25) {
+        onTap(e.clientX, e.clientY)
+      }
+    }
     mouseDown = false
     gs.active = false
     startInertia(vp, gs, onUpdate)

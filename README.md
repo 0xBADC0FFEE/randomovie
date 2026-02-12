@@ -14,7 +14,7 @@ Infinite 2D canvas of movie posters. Swipe in any direction — see similar movi
 
 All computation runs client-side in a Web Worker. No backend needed.
 
-Type to search — fuzzy title matching runs in a Web Worker (`titles.bin`, ~1 MB). Center poster swaps instantly, neighbors regenerate after a short delay.
+Type to search — fuzzy title matching runs in a Web Worker (`metadata.bin`, ~0.5 MB). Tap a poster to open its IMDB page. Center poster swaps instantly, neighbors regenerate after a short delay.
 
 ## Quick start (mock data)
 
@@ -42,7 +42,7 @@ pip install kagglehub pandas numpy umap-learn requests
 python scripts/pipeline.py
 ```
 
-This downloads ~1M movies from Kaggle ([alanvourch/tmdb-movies-daily-updates](https://www.kaggle.com/datasets/alanvourch/tmdb-movies-daily-updates)), filters to ~80k, generates 768-dim embeddings via Ollama, runs UMAP to 16-dim, and outputs `public/data/embeddings.bin` (~4 MB) and `public/data/titles.bin` (~1 MB).
+This downloads ~1M movies from Kaggle ([alanvourch/tmdb-movies-daily-updates](https://www.kaggle.com/datasets/alanvourch/tmdb-movies-daily-updates)), filters to ~80k, generates 768-dim embeddings via Ollama, runs UMAP to 16-dim, and outputs `public/data/embeddings.bin` (~4 MB) and `public/data/metadata.bin` (~0.5 MB).
 
 First run takes a while (embedding generation + UMAP). Subsequent runs are fast — embeddings are cached in `scripts/embedding_cache.npz`.
 
@@ -74,7 +74,7 @@ src/
   main.ts                — entry point, wiring
   canvas/
     viewport.ts          — coordinate math, cell ranges, dynamic zoom limits
-    gestures.ts          — pan/pinch/zoom with inertia
+    gestures.ts          — pan/pinch/zoom with inertia + tap detection
     renderer.ts          — Canvas 2D render loop, culling
     animation.ts         — viewport lerp for search transitions
   engine/
@@ -82,7 +82,7 @@ src/
     generator.ts         — similarity + random algorithm
     embeddings.ts        — .bin parser, brute-force search
     search.worker.ts     — fuzzy title search (Web Worker)
-    titles.ts            — titles.bin parser
+    titles.ts            — metadata.bin parser (titles, IMDB IDs, ratings)
   debug/
     overlay.ts             — FPS/viewport/grid debug HUD (2-finger double-tap)
   canvas/
