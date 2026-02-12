@@ -6,7 +6,7 @@ import { generateMockIndex, parseEmbeddings } from './engine/embeddings.ts'
 import type { EmbeddingsIndex, MovieEntry } from './engine/embeddings.ts'
 import { setOnLoad, evictImages, clearAllImages, stash, restore } from './canvas/poster-loader.ts'
 import { startWave, isWaveDone } from './canvas/wave.ts'
-import type { WaveState } from './canvas/wave.ts'
+import type { WaveState, OldCellData } from './canvas/wave.ts'
 import { createAnimation, animateViewport } from './canvas/animation.ts'
 import { createDebugOverlay, type DebugOverlay } from './debug/overlay.ts'
 import type { TitlesIndex } from './engine/titles.ts'
@@ -370,10 +370,16 @@ function handleLongPress(sx: number, sy: number) {
   if (!cell) return
   suppressNextTap = true
 
-  const seedKey = `${col}:${row}`
-  const savedImgs = stash(seedKey)
+  // Stash ALL old cells + images before clearing
+  const old = new Map<string, OldCellData>()
+  for (const [key, c] of grid.cells) {
+    old.set(key, { cell: c, imgs: stash(key) })
+  }
 
-  // Inline focusOn without fillPending delay
+  const seedKey = `${col}:${row}`
+  const savedImgs = old.get(seedKey)?.imgs
+
+  // Clear and regenerate
   clearGrid(grid, clearAllImages)
   setCell(grid, col, row, {
     tmdbId: cell.tmdbId,
@@ -388,13 +394,13 @@ function handleLongPress(sx: number, sy: number) {
   // Fill entire visible range NOW (no budget limit)
   fillRange(grid, getVisibleRange(vp, PRELOAD_BUFFER), index, true)
 
-  // Start wave reveal animation
+  // Start seismic wave animation
   const range = getVisibleRange(vp)
   const maxRing = Math.max(
     col - range.minCol, range.maxCol - col,
     row - range.minRow, range.maxRow - row,
   )
-  activeWave = startWave(col, row, maxRing)
+  activeWave = startWave(col, row, maxRing, old)
 
   scheduleRender()
 }

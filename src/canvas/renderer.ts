@@ -4,7 +4,7 @@ import type { Grid } from '../engine/grid.ts'
 import type { TitlesIndex } from '../engine/titles.ts'
 import * as Posters from './poster-loader.ts'
 import type { WaveState } from './wave.ts'
-import { updateWave, cellOpacity } from './wave.ts'
+import { updateWave, cellBump } from './wave.ts'
 
 function drawRating(
   ctx: CanvasRenderingContext2D,
@@ -87,45 +87,64 @@ export function render(
         continue
       }
 
-      // Wave: determine cell opacity
-      let alpha = 1
+      // Wave: determine bump scale + which poster to show
+      let scale = 1
+      let useOld = false
       if (wave) {
-        alpha = cellOpacity(wave, col, row, now)
-        if (alpha <= 0) {
-          // Still queue poster load for hidden cells
-          if (!Posters.get(cellKey, size)) {
-            toLoad.push({ col, row, cellKey, posterPath: cell.posterPath })
-          }
-          continue
-        }
+        const b = cellBump(wave, col, row, now)
+        scale = b.scale
+        useOld = b.useOld
       }
 
-      const needAlpha = alpha < 1
-      if (needAlpha) ctx.globalAlpha = alpha
+      // Always queue new poster for loading (ringReady needs them)
+      if (!Posters.get(cellKey, size)) {
+        toLoad.push({ col, row, cellKey, posterPath: cell.posterPath })
+      }
 
-      const img = Posters.getBestAvailable(cellKey, size)
-      if (img) {
-        ctx.drawImage(img, sx, sy, cellScreenW, cellScreenH)
-        // If best available isn't the ideal size, request upgrade
-        if (!Posters.get(cellKey, size)) {
-          toLoad.push({ col, row, cellKey, posterPath: cell.posterPath })
+      // Pick image source: old (stashed) or new (grid)
+      let img: HTMLImageElement | undefined
+      let placeholderHue: number
+      if (useOld && wave) {
+        const oldData = wave.old.get(cellKey)
+        if (oldData) {
+          img = findBestStashed(oldData.imgs, size)
+          placeholderHue = (oldData.cell.embedding[0] / 255) * 360
+        } else {
+          img = Posters.getBestAvailable(cellKey, size)
+          placeholderHue = (cell.embedding[0] / 255) * 360
         }
       } else {
-        // Placeholder: hue derived from embedding
-        const hue = (cell.embedding[0] / 255) * 360
-        ctx.fillStyle = `hsl(${hue}, 40%, 20%)`
+        img = Posters.getBestAvailable(cellKey, size)
+        placeholderHue = (cell.embedding[0] / 255) * 360
+      }
+
+      // Apply scale transform (from cell center)
+      const needScale = scale !== 1
+      if (needScale) {
+        const centerX = sx + cellScreenW / 2
+        const centerY = sy + cellScreenH / 2
+        ctx.save()
+        ctx.translate(centerX, centerY)
+        ctx.scale(scale, scale)
+        ctx.translate(-centerX, -centerY)
+      }
+
+      if (img) {
+        ctx.drawImage(img, sx, sy, cellScreenW, cellScreenH)
+      } else {
+        ctx.fillStyle = `hsl(${placeholderHue}, 40%, 20%)`
         ctx.fillRect(sx, sy, cellScreenW, cellScreenH)
-        toLoad.push({ col, row, cellKey, posterPath: cell.posterPath })
       }
 
       // Rating overlay
       if (titlesIndex) {
-        const idx = titlesIndex.idToIdx.get(cell.tmdbId)
+        const drawCell = useOld && wave ? wave.old.get(cellKey)?.cell ?? cell : cell
+        const idx = titlesIndex.idToIdx.get(drawCell.tmdbId)
         const rating = idx !== undefined ? titlesIndex.ratings[idx] : undefined
-        drawRating(ctx, rating, sx, sy, cellScreenW, cellScreenH, alpha)
+        drawRating(ctx, rating, sx, sy, cellScreenW, cellScreenH)
       }
 
-      if (needAlpha) ctx.globalAlpha = 1
+      if (needScale) ctx.restore()
     }
   }
 
@@ -137,6 +156,26 @@ export function render(
     Posters.load(cellKey, posterPath, size)
   }
 
+}
+
+/** Find best available image from stashed image map */
+function findBestStashed(
+  imgs: Map<Posters.TmdbSize, HTMLImageElement> | undefined,
+  size: Posters.TmdbSize,
+): HTMLImageElement | undefined {
+  if (!imgs) return undefined
+  const TMDB_SIZES = [92, 154, 185, 342, 500, 780] as const
+  // Walk sizes downward from requested
+  for (let i = TMDB_SIZES.indexOf(size); i >= 0; i--) {
+    const img = imgs.get(TMDB_SIZES[i])
+    if (img?.complete && img.naturalWidth > 0) return img
+  }
+  // Check above
+  for (let i = TMDB_SIZES.indexOf(size) + 1; i < TMDB_SIZES.length; i++) {
+    const img = imgs.get(TMDB_SIZES[i])
+    if (img?.complete && img.naturalWidth > 0) return img
+  }
+  return undefined
 }
 
 export function preloadPosters(vp: Viewport, grid: Grid) {
