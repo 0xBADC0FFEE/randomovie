@@ -3,7 +3,7 @@ import { createGestureState, setupGestures } from './canvas/gestures.ts'
 import { render, preloadPosters } from './canvas/renderer.ts'
 import { createGrid, fillRange, evictOutside, clearGrid, setCell } from './engine/grid.ts'
 import { generateMockIndex, parseEmbeddings } from './engine/embeddings.ts'
-import type { EmbeddingsIndex } from './engine/embeddings.ts'
+import type { EmbeddingsIndex, MovieEntry } from './engine/embeddings.ts'
 import { setOnLoad, evictImages, clearAllImages } from './canvas/poster-loader.ts'
 import { createAnimation, animateViewport } from './canvas/animation.ts'
 import { createDebugOverlay, type DebugOverlay } from './debug/overlay.ts'
@@ -75,6 +75,7 @@ let titlesIndex: TitlesIndex | null = null
 let searchMode = false
 let searchCell: [number, number] = [0, 0]
 let searchDebounceId = 0
+let fillCoherent = false
 let fillDebounceId = 0
 let fillPending = false
 let idleId = 0
@@ -148,7 +149,7 @@ function update() {
       // visible cells already exist from pass 1 → skipped → budget only for buffer
       n += fillRange(grid, getVisibleRange(vp, GESTURE_BUFFER), index, false, GESTURE_FILL, noiseFactor, randomChance)
     } else {
-      n = fillRange(grid, getVisibleRange(vp, PRELOAD_BUFFER), index, false, FILL_PER_FRAME)
+      n = fillRange(grid, getVisibleRange(vp, PRELOAD_BUFFER), index, fillCoherent, FILL_PER_FRAME)
     }
   }
 
@@ -165,6 +166,32 @@ function update() {
 function findCenterCell(): [number, number] {
   const [wx, wy] = screenToWorld(vp, vp.width / 2, vp.height / 2)
   return [Math.round(wx / CELL_W - 0.5), Math.round(wy / CELL_H - 0.5)]
+}
+
+function focusOn(col: number, row: number, seed?: MovieEntry, delay = 0) {
+  clearGrid(grid, clearAllImages)
+  if (seed) {
+    setCell(grid, col, row, {
+      tmdbId: seed.tmdbId,
+      posterPath: seed.posterPath,
+      embedding: seed.embedding,
+    })
+    fillCoherent = true
+  } else {
+    fillCoherent = false
+  }
+  centerOn(vp, col, row)
+
+  if (delay > 0) {
+    fillPending = true
+    clearTimeout(fillDebounceId)
+    fillDebounceId = window.setTimeout(() => {
+      fillPending = false
+      scheduleRender()
+    }, delay)
+  }
+
+  scheduleRender()
 }
 
 /** Center+fit one card in visible area above search input */
@@ -206,6 +233,7 @@ function exitSearchMode() {
   if (!searchMode) return
   searchMode = false
   gs.disabled = false
+  fillCoherent = false
   searchInput.blur()
   searchInput.value = ''
   scheduleRender()
@@ -233,22 +261,7 @@ function handleWorkerMessage(e: MessageEvent) {
     if (!entry) return
 
     const [col, row] = findCenterCell()
-    clearGrid(grid, clearAllImages)
-    setCell(grid, col, row, {
-      tmdbId: entry.tmdbId,
-      posterPath: entry.posterPath,
-      embedding: entry.embedding,
-    })
-    scheduleRender()
-
-    clearTimeout(fillDebounceId)
-    fillPending = true
-    fillDebounceId = window.setTimeout(() => {
-      const range = getVisibleRange(vp, PRELOAD_BUFFER)
-      fillRange(grid, range, index, true)
-      fillPending = false
-      scheduleRender()
-    }, FILL_DELAY)
+    focusOn(col, row, entry, FILL_DELAY)
   }
 }
 
@@ -346,7 +359,7 @@ async function init() {
     searchInput.style.display = 'none'
   }
 
-  centerOn(vp, 0, 0)
+  focusOn(0, 0)
   setupGestures(canvas, vp, gs, scheduleRender, openMovieLink)
 
   // 2-finger double-tap toggles debug overlay
