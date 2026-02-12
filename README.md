@@ -14,6 +14,17 @@ Infinite 2D canvas of movie posters. Swipe in any direction — see similar movi
 
 All computation runs client-side in a Web Worker. No backend needed.
 
+## Rating overlay
+
+Each poster has a shape in the bottom-right corner that morphs from dot to star based on TMDB rating:
+
+```
+ · →  ●  →  ◆  →  ✦  →  ★
+5.0  6.0   6.5   7.5   8.0+
+```
+
+Formula: `t = clamp((rating − 5) / 3, 0, 1)`. Rendered with `difference` blend mode (α 0.4). No rating → faint dot (α 0.08).
+
 Type to search — fuzzy title matching runs in a Web Worker (`metadata.bin`, ~0.5 MB). Tap a poster to open its IMDB page. Center poster swaps instantly, neighbors regenerate after a short delay.
 
 ## Quick start (mock data)

@@ -61,6 +61,7 @@ PWA. Works on any phone or desktop browser. Installable to home screen.
 ## v0.2 — next
 
 - [x] Tap → opens IMDB page
+- [x] Star-morph rating overlay per poster
 - [ ] Movie detail card overlay (title, year, rating, plot)
 - [ ] Service Worker for offline / instant reload
 - [ ] Loading state on first visit (while embeddings download)
