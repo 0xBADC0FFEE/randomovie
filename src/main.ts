@@ -437,6 +437,7 @@ async function init() {
     lpStartY = t.clientY
     lpTimer = window.setTimeout(() => {
       lpTimer = 0
+      gs.disabled = true; gs.panning = false; gs.velocityX = gs.velocityY = 0; cancelAnimationFrame(gs.animId)
       handleLongPress(lpStartX, lpStartY)
       lpInterval = window.setInterval(() => handleLongPress(lpStartX, lpStartY), 2000)
     }, 1000)
@@ -447,16 +448,17 @@ async function init() {
     const t = e.touches[0]
     const dx = t.clientX - lpStartX
     const dy = t.clientY - lpStartY
-    if (dx * dx + dy * dy > 100) { clearTimeout(lpTimer); lpTimer = 0; clearInterval(lpInterval); lpInterval = 0 }
+    if (lpTimer && dx * dx + dy * dy > 100) { clearTimeout(lpTimer); lpTimer = 0; gs.disabled = false }
   }, { passive: true })
 
-  canvas.addEventListener('touchend', () => { clearTimeout(lpTimer); lpTimer = 0; clearInterval(lpInterval); lpInterval = 0 })
+  canvas.addEventListener('touchend', () => { clearTimeout(lpTimer); lpTimer = 0; clearInterval(lpInterval); lpInterval = 0; gs.disabled = false })
 
   canvas.addEventListener('mousedown', (e) => {
     lpStartX = e.clientX
     lpStartY = e.clientY
     lpTimer = window.setTimeout(() => {
       lpTimer = 0
+      gs.disabled = true; gs.panning = false; gs.velocityX = gs.velocityY = 0; cancelAnimationFrame(gs.animId)
       handleLongPress(lpStartX, lpStartY)
       lpInterval = window.setInterval(() => handleLongPress(lpStartX, lpStartY), 2000)
     }, 1000)
@@ -466,10 +468,10 @@ async function init() {
     if (!lpTimer && !lpInterval) return
     const dx = e.clientX - lpStartX
     const dy = e.clientY - lpStartY
-    if (dx * dx + dy * dy > 100) { clearTimeout(lpTimer); lpTimer = 0; clearInterval(lpInterval); lpInterval = 0 }
+    if (lpTimer && dx * dx + dy * dy > 100) { clearTimeout(lpTimer); lpTimer = 0; gs.disabled = false }
   })
 
-  canvas.addEventListener('mouseup', () => { clearTimeout(lpTimer); lpTimer = 0; clearInterval(lpInterval); lpInterval = 0 })
+  canvas.addEventListener('mouseup', () => { clearTimeout(lpTimer); lpTimer = 0; clearInterval(lpInterval); lpInterval = 0; gs.disabled = false })
 
   // 2-finger double-tap toggles debug overlay
   let lastDblTouchTime = 0
