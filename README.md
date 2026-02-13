@@ -114,7 +114,7 @@ scripts/
 
 ## Debug mode
 
-Activate: 2-finger double-tap on touchscreen, or add `?debug` to URL.
+Activate: double right-click on canvas (desktop), or 2-finger double-tap on touchscreen.
 
 Shows a minimap overlay (top-left corner) where each cell is colored by its embedding — similar movies share similar hues. A cyan rectangle marks the current viewport. Useful for visualizing how the similarity algorithm fills the grid.
 

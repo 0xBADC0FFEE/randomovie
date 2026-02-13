@@ -116,8 +116,7 @@ let suppressNextTap = false
 let lpTimer = 0
 let lpInterval = 0
 let activeWave: WaveState | null = null
-let debugOverlay: DebugOverlay | null =
-  new URLSearchParams(location.search).has('debug') ? createDebugOverlay() : null
+let debugOverlay: DebugOverlay | null = null
 
 let minRatingX10 = RATING_MIN_X10
 let ratingFilterSeq = 0
@@ -777,6 +776,27 @@ async function init() {
   })
 
   canvas.addEventListener('mouseup', () => { clearTimeout(lpTimer); lpTimer = 0; clearInterval(lpInterval); lpInterval = 0 })
+
+  // Prevent OS/browser context menu so right-button dbl click can toggle minimap
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault())
+
+  // Desktop: right-button double click toggles debug overlay
+  let lastRightClickTime = 0
+  canvas.addEventListener('mousedown', (e) => {
+    if (e.button !== 2) return
+    const now = performance.now()
+    if (now - lastRightClickTime < 400) {
+      if (!debugOverlay) {
+        debugOverlay = createDebugOverlay()
+      } else {
+        debugOverlay.toggle()
+      }
+      scheduleRender()
+      lastRightClickTime = 0
+    } else {
+      lastRightClickTime = now
+    }
+  })
 
   // 2-finger double-tap toggles debug overlay
   let lastDblTouchTime = 0

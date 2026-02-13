@@ -135,6 +135,7 @@ export function setupGestures(
   let mouseDown = false
   let mouseStartX = 0, mouseStartY = 0
   el.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return
     if (gs.disabled) return
     mouseDown = true
     gs.active = true
@@ -160,6 +161,8 @@ export function setupGestures(
   })
 
   el.addEventListener('mouseup', (e) => {
+    if (e.button !== 0) return
+    if (!mouseDown) return
     if (onTap) {
       const dx = e.clientX - mouseStartX
       const dy = e.clientY - mouseStartY
