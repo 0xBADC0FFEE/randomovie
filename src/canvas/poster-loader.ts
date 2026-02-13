@@ -10,7 +10,12 @@ export type TmdbSize = (typeof TMDB_SIZES)[number]
 const store = new Map<string, Map<TmdbSize, HTMLImageElement>>()
 let inFlight = 0
 const queue: { cellKey: string; posterPath: string; size: TmdbSize }[] = []
+const queued = new Set<string>()
 let onLoad: (() => void) | undefined
+
+function queueKey(cellKey: string, size: TmdbSize): string {
+  return `${cellKey}@${size}`
+}
 
 export function setOnLoad(cb: () => void) {
   onLoad = cb
@@ -48,9 +53,12 @@ export function load(cellKey: string, posterPath: string, size: TmdbSize): void 
   if (!posterPath) return
   if (store.get(cellKey)?.has(size)) return
   if (inFlight >= MAX_CONCURRENT) {
-    // avoid duplicate queue entries
-    if (!queue.some(q => q.cellKey === cellKey && q.size === size))
+    // O(1) dedupe for hot scroll/preload path
+    const qk = queueKey(cellKey, size)
+    if (!queued.has(qk)) {
       queue.push({ cellKey, posterPath, size })
+      queued.add(qk)
+    }
     return
   }
   fireLoad(cellKey, posterPath, size)
@@ -76,6 +84,7 @@ function fireLoad(cellKey: string, posterPath: string, size: TmdbSize): void {
 function drainQueue(): void {
   while (inFlight < MAX_CONCURRENT && queue.length > 0) {
     const item = queue.shift()!
+    queued.delete(queueKey(item.cellKey, item.size))
     if (store.get(item.cellKey)?.has(item.size)) continue
     fireLoad(item.cellKey, item.posterPath, item.size)
   }
@@ -85,7 +94,10 @@ export function evictImages(keys: string[]) {
   const evicted = new Set(keys)
   for (const k of keys) store.delete(k)
   for (let i = queue.length - 1; i >= 0; i--) {
-    if (evicted.has(queue[i].cellKey)) queue.splice(i, 1)
+    const item = queue[i]
+    if (!evicted.has(item.cellKey)) continue
+    queued.delete(queueKey(item.cellKey, item.size))
+    queue.splice(i, 1)
   }
 }
 
@@ -100,4 +112,5 @@ export function restore(cellKey: string, imgs: Map<TmdbSize, HTMLImageElement>) 
 export function clearAllImages() {
   store.clear()
   queue.length = 0
+  queued.clear()
 }

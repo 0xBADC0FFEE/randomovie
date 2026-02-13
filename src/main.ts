@@ -104,6 +104,7 @@ let searchReady = false
 
 let index: EmbeddingsIndex
 let activeIndex: EmbeddingsIndex
+let movieByTmdbId = new Map<number, MovieEntry>()
 let titlesIndex: TitlesIndex | null = null
 let searchMode = false
 let searchCell: [number, number] = [0, 0]
@@ -126,6 +127,8 @@ let hintTimer = 0
 let isDraggingFilter = false
 const filterSwapFx = new Map<string, FilterSwapFxEntry>()
 const allowAll = (_tmdbId: number): boolean => true
+let lastEvictSig = ''
+let lastPreloadSig = ''
 
 function clampMinRatingX10(v: number): number {
   const clamped = Math.max(RATING_MIN_X10, Math.min(RATING_MAX_X10, clampRatingX10(v)))
@@ -287,7 +290,7 @@ function enforceMinRating() {
     if (changed > 0) {
       activeWave = null
       scheduleRepaint()
-      preloadPosters(vp, grid)
+      maybePreloadPosters(true)
     }
 
     if (ratingReplaceQueue.length > 0) {
@@ -299,6 +302,30 @@ function enforceMinRating() {
   }
 
   ratingReplaceRaf = requestAnimationFrame(runBatch)
+}
+
+function rangeSig(buffer: number): string {
+  const range = getVisibleRange(vp, buffer)
+  return `${range.minCol}:${range.maxCol}:${range.minRow}:${range.maxRow}`
+}
+
+function maybeEvictOutside() {
+  const sig = rangeSig(EVICT_BUFFER)
+  if (sig === lastEvictSig) return
+  lastEvictSig = sig
+  evictOutside(grid, getVisibleRange(vp, EVICT_BUFFER), (keys) => {
+    evictImages(keys)
+    for (const k of keys) filterSwapFx.delete(k)
+  })
+}
+
+function maybePreloadPosters(force = false) {
+  const dpr = window.devicePixelRatio || 1
+  const size = pickSize(vp.scale, dpr)
+  const sig = `${rangeSig(PRELOAD_BUFFER)}:${size}`
+  if (!force && sig === lastPreloadSig) return
+  lastPreloadSig = sig
+  preloadPosters(vp, grid)
 }
 
 function cancelIdleFill() {
@@ -318,7 +345,7 @@ function scheduleIdleFill() {
     }
     if (n > 0) {
       scheduleRepaint()
-      preloadPosters(vp, grid)
+      maybePreloadPosters(true)
     }
     scheduleIdleFill()
   })
@@ -388,11 +415,8 @@ function update() {
   if (hasVisibleSwapFx()) scheduleRender()
 
   if (n > 0) scheduleRender()
-  evictOutside(grid, getVisibleRange(vp, EVICT_BUFFER), (keys) => {
-    evictImages(keys)
-    for (const k of keys) filterSwapFx.delete(k)
-  })
-  preloadPosters(vp, grid)
+  maybeEvictOutside()
+  maybePreloadPosters(n > 0)
   scheduleIdleFill()
   debugOverlay?.update(vp, gs, grid)
 }
@@ -407,6 +431,8 @@ function focusOn(col: number, row: number, seed?: MovieEntry, delay = 0, center 
   activeWave = null
   filterSwapFx.clear()
   clearGrid(grid, clearAllImages)
+  lastEvictSig = ''
+  lastPreloadSig = ''
 
   const validSeed = seed && isTmdbAllowed(seed.tmdbId) ? seed : undefined
   if (validSeed) {
@@ -504,7 +530,7 @@ function handleWorkerMessage(e: MessageEvent) {
       return
     }
 
-    const entry = index.movies.find(m => m.tmdbId === tmdbId)
+    const entry = movieByTmdbId.get(tmdbId)
     if (!entry) return
 
     const [col, row] = findCenterCell()
@@ -673,6 +699,8 @@ function handleLongPress(col: number, row: number) {
   // Clear and regenerate
   filterSwapFx.clear()
   clearGrid(grid, clearAllImages)
+  lastEvictSig = ''
+  lastPreloadSig = ''
   if (seedCell) {
     setCell(grid, col, row, {
       tmdbId: seedCell.tmdbId,
@@ -703,13 +731,19 @@ async function init() {
   safeTop = getSafeAreaTop()
   initRatingStripIcons()
   resize()
-  window.addEventListener('resize', () => { resize(); scheduleRender() })
+  window.addEventListener('resize', () => {
+    resize()
+    lastEvictSig = ''
+    lastPreloadSig = ''
+    scheduleRender()
+  })
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', onVisualViewportChange)
     window.visualViewport.addEventListener('scroll', onVisualViewportChange)
   }
 
   index = await loadEmbeddings()
+  movieByTmdbId = new Map(index.movies.map((m) => [m.tmdbId, m]))
   activeIndex = index
   const titlesLoaded = await loadTitles()
 
