@@ -16,8 +16,9 @@ Infinite 2D canvas of movie posters. No lists, no categories. You pan around, an
 3. Keep swiping toward what catches your eye → the canvas adapts
 4. Random posters sprinkled in → create new exploration paths
 5. Type to search → center poster swaps, neighbors regenerate
-6. Tap a poster → opens IMDB page
-7. That's it. No accounts, no ratings, no watchlists (for now)
+6. Set min rating (5.0–8.0) → visible low-rated posters replaced, new generation stays above threshold
+7. Tap a poster → opens IMDB page
+8. That's it. No accounts, no watchlists (for now)
 
 ## How Similarity Works
 
@@ -25,7 +26,8 @@ Infinite 2D canvas of movie posters. No lists, no categories. You pan around, an
 - When a new cell needs filling: average the embeddings of visible neighbors (weighted by proximity), add noise, find closest match
 - Scroll direction is extrapolated to continue genre trends (gradient extrapolation)
 - 5–40% of new cells inject diversity (scales with swipe speed) — prevents similarity bubbles, fast flicks explore more
-- Already-placed movies never change
+- Min-rating filter (if set) prefilters candidate pool before generation; similarity is computed within filtered pool
+- Already-placed movies are stable except explicit refresh actions (search/focus/long-press/filter change)
 
 ## Constraints
 
