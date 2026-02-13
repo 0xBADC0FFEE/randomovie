@@ -1,5 +1,5 @@
 import type { Viewport } from '../canvas/viewport.ts'
-import { getVisibleRange, screenToWorld, CELL_W, CELL_H } from '../canvas/viewport.ts'
+import { screenToWorld, CELL_W, CELL_H } from '../canvas/viewport.ts'
 import type { GestureState } from '../canvas/gestures.ts'
 import type { Grid } from '../engine/grid.ts'
 
@@ -125,10 +125,10 @@ export function createDebugOverlay(): DebugOverlay {
 
       paintStats(now)
 
-      // Center cell from viewport center
+      // Use continuous center (not rounded) to avoid minimap "step" jumps while panning.
       const [wcx, wcy] = screenToWorld(vp, vp.width / 2, vp.height / 2)
-      const cc = Math.round(wcx / CELL_W)
-      const cr = Math.round(wcy / CELL_H)
+      const centerCol = wcx / CELL_W
+      const centerRow = wcy / CELL_H
 
       // Half-span: constant for given viewport size + scale (stable during pan)
       const hc = Math.ceil(vp.width / (CELL_W * vp.scale * 2)) + 1 + BUFFER
@@ -146,29 +146,31 @@ export function createDebugOverlay(): DebugOverlay {
 
       ctx.clearRect(0, 0, w, h)
 
-      const minCol = cc - hc
-      const minRow = cr - hr
+      const minCol = Math.floor(centerCol - hc) - 1
+      const maxCol = Math.ceil(centerCol + hc) + 1
+      const minRow = Math.floor(centerRow - hr) - 1
+      const maxRow = Math.ceil(centerRow + hr) + 1
 
       // Draw cells
-      for (let r = cr - hr; r <= cr + hr; r++) {
-        for (let c = cc - hc; c <= cc + hc; c++) {
+      for (let r = minRow; r <= maxRow; r++) {
+        for (let c = minCol; c <= maxCol; c++) {
           const cell = grid.cells.get(`${c}:${r}`)
           if (!cell) continue
+          const sx = (c - centerCol + hc) * CELL_PX
+          const sy = (r - centerRow + hr) * CELL_PX
+          if (sx + CELL_PX <= 0 || sy + CELL_PX <= 0 || sx >= w || sy >= h) continue
           ctx.fillStyle = embeddingToCSS(cell.embedding)
-          ctx.fillRect(
-            (c - minCol) * CELL_PX,
-            (r - minRow) * CELL_PX,
-            CELL_PX, CELL_PX,
-          )
+          ctx.fillRect(sx, sy, CELL_PX, CELL_PX)
         }
       }
 
-      // Viewport indicator
-      const vis = getVisibleRange(vp, 0)
-      const vx = (vis.minCol - minCol) * CELL_PX
-      const vy = (vis.minRow - minRow) * CELL_PX
-      const vw = (vis.maxCol - vis.minCol + 1) * CELL_PX
-      const vh = (vis.maxRow - vis.minRow + 1) * CELL_PX
+      // Viewport indicator in continuous world-space coordinates.
+      const [wx0, wy0] = screenToWorld(vp, 0, 0)
+      const [wx1, wy1] = screenToWorld(vp, vp.width, vp.height)
+      const vx = (wx0 / CELL_W - centerCol + hc) * CELL_PX
+      const vy = (wy0 / CELL_H - centerRow + hr) * CELL_PX
+      const vw = ((wx1 - wx0) / CELL_W) * CELL_PX
+      const vh = ((wy1 - wy0) / CELL_H) * CELL_PX
       ctx.strokeStyle = 'cyan'
       ctx.lineWidth = 1
       ctx.strokeRect(vx + 0.5, vy + 0.5, vw, vh)

@@ -40,7 +40,10 @@ let safeTop = 0
 
 const EVICT_BUFFER = 8
 const GESTURE_BUFFER = 4
-const GESTURE_FILL = 8
+const GESTURE_VISIBLE_FILL = 2
+const GESTURE_FILL = 1
+const GESTURE_VISIBLE_FILL_MS = 2
+const GESTURE_BUFFER_FILL_MS = 1
 const FILL_PER_FRAME = 6
 const IDLE_FILL_MAX = 16
 const SEARCH_DEBOUNCE = 150
@@ -393,11 +396,30 @@ function update() {
       const noiseFactor = 0.08 + t * 0.72    // 0.08 -> 0.8
       const randomChance = 0.05 + t * 0.55   // 0.05 -> 0.6
 
-      // Pass 1: fill entire render range (no budget - cells show as empty otherwise)
-      n = fillRange(grid, getVisibleRange(vp), activeIndex, allowAll, false, undefined, noiseFactor, randomChance)
-      // Pass 2: budget-limited buffer cells for preloading
-      // visible cells already exist from pass 1 -> skipped -> budget only for buffer
-      n += fillRange(grid, getVisibleRange(vp, GESTURE_BUFFER), activeIndex, allowAll, false, GESTURE_FILL, noiseFactor, randomChance)
+      // Keep generation budgeted while panning to avoid row-entry micro-stutters.
+      n = fillRange(
+        grid,
+        getVisibleRange(vp),
+        activeIndex,
+        allowAll,
+        false,
+        GESTURE_VISIBLE_FILL,
+        noiseFactor,
+        randomChance,
+        GESTURE_VISIBLE_FILL_MS,
+      )
+      // Small budget for near-buffer so image preloading still keeps up.
+      n += fillRange(
+        grid,
+        getVisibleRange(vp, GESTURE_BUFFER),
+        activeIndex,
+        allowAll,
+        false,
+        GESTURE_FILL,
+        noiseFactor,
+        randomChance,
+        GESTURE_BUFFER_FILL_MS,
+      )
     } else {
       n = fillRange(grid, getVisibleRange(vp, PRELOAD_BUFFER), activeIndex, allowAll, fillCoherent, FILL_PER_FRAME)
     }
@@ -415,8 +437,10 @@ function update() {
   if (hasVisibleSwapFx()) scheduleRender()
 
   if (n > 0) scheduleRender()
-  maybeEvictOutside()
-  maybePreloadPosters(n > 0)
+  if (!gs.active) {
+    maybeEvictOutside()
+    maybePreloadPosters(n > 0)
+  }
   scheduleIdleFill()
   debugOverlay?.update(vp, gs, grid)
 }

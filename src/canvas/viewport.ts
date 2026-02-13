@@ -29,6 +29,44 @@ export interface CellRange {
   maxRow: number
 }
 
+const CENTER_OUT_CACHE_MAX = 64
+const centerOutCache = new Map<string, [number, number][]>()
+
+function rangeKey(range: CellRange): string {
+  return `${range.minCol}:${range.maxCol}:${range.minRow}:${range.maxRow}`
+}
+
+/** Stable center-out coordinate order for a range (cached, reused in hot paths). */
+export function getCenterOutCoords(range: CellRange): [number, number][] {
+  const key = rangeKey(range)
+  const cached = centerOutCache.get(key)
+  if (cached) {
+    // Refresh LRU order.
+    centerOutCache.delete(key)
+    centerOutCache.set(key, cached)
+    return cached
+  }
+
+  const cx = (range.minCol + range.maxCol) / 2
+  const cy = (range.minRow + range.maxRow) / 2
+  const coords: [number, number][] = []
+  for (let row = range.minRow; row <= range.maxRow; row++) {
+    for (let col = range.minCol; col <= range.maxCol; col++) {
+      coords.push([col, row])
+    }
+  }
+  coords.sort((a, b) =>
+    (a[0] - cx) ** 2 + (a[1] - cy) ** 2 - (b[0] - cx) ** 2 - (b[1] - cy) ** 2
+  )
+
+  centerOutCache.set(key, coords)
+  if (centerOutCache.size > CENTER_OUT_CACHE_MAX) {
+    const oldest = centerOutCache.keys().next().value
+    if (oldest) centerOutCache.delete(oldest)
+  }
+  return coords
+}
+
 /** Visible cell range + buffer rows around viewport */
 export function getVisibleRange(vp: Viewport, buffer = 2): CellRange {
   const [wx0, wy0] = screenToWorld(vp, 0, 0)

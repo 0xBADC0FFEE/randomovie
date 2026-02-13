@@ -1,4 +1,5 @@
 import type { CellRange } from '../canvas/viewport.ts'
+import { getCenterOutCoords } from '../canvas/viewport.ts'
 import type { EmbeddingsIndex } from './embeddings.ts'
 import { generateMovie } from './generator.ts'
 
@@ -50,22 +51,15 @@ export function fillRange(
   isAllowed: (tmdbId: number) => boolean,
   coherent = false, maxNew = Infinity,
   noiseFactor?: number, randomChance?: number,
+  maxMs = Infinity,
 ): number {
-  const cx = (range.minCol + range.maxCol) / 2
-  const cy = (range.minRow + range.maxRow) / 2
-
-  const coords: [number, number][] = []
-  for (let row = range.minRow; row <= range.maxRow; row++) {
-    for (let col = range.minCol; col <= range.maxCol; col++) {
-      coords.push([col, row])
-    }
-  }
-  coords.sort((a, b) =>
-    (a[0] - cx) ** 2 + (a[1] - cy) ** 2 - (b[0] - cx) ** 2 - (b[1] - cy) ** 2
-  )
-
+  const startedAt = Number.isFinite(maxMs) ? performance.now() : 0
+  let iter = 0
   let generated = 0
-  for (const [col, row] of coords) {
+  for (const [col, row] of getCenterOutCoords(range)) {
+    if ((iter++ & 15) === 0 && Number.isFinite(maxMs) && (performance.now() - startedAt) >= maxMs) {
+      return generated
+    }
     if (grid.cells.has(key(col, row))) continue
     if (generated >= maxNew) return generated
     const cell = generateMovie(col, row, grid, index, isAllowed, coherent, noiseFactor, randomChance)
