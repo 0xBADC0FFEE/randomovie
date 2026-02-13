@@ -1,8 +1,8 @@
 import { CELL_W } from './viewport.ts'
 
 const TMDB_IMG_BASE = 'https://image.tmdb.org/t/p/'
-const DEFAULT_MAX_CONCURRENT = 18
-const MOTION_MAX_CONCURRENT = 8
+const DEFAULT_MAX_CONCURRENT = 36
+const MOTION_MAX_CONCURRENT = 18
 const TMDB_SIZES = [92, 154, 185, 342, 500, 780] as const
 
 export type TmdbSize = (typeof TMDB_SIZES)[number]
