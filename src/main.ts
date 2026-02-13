@@ -50,7 +50,6 @@ const RATING_MIN_X10 = 50
 const RATING_MAX_X10 = 80
 const RATING_STEP_X10 = 5
 const ICON_RATINGS_X10 = [50, 60, 65, 75, 80]
-const RATING_DRAG_THRESHOLD_PX = 8
 const FILTER_REPLACE_BATCH = 14
 const FILTER_SWAP_TIMEOUT = 500
 const HINT_DURATION_MS = 1200
@@ -568,10 +567,7 @@ function setupSearch() {
 
 function setupRatingFilter() {
   let pointerId = -1
-  let dragStartX = 0
-  let dragStartY = 0
   let dragging = false
-  let tappedRatingX10: number | null = null
   let prevGsDisabled = false
 
   function ratingFromClientX(clientX: number): number {
@@ -584,47 +580,30 @@ function setupRatingFilter() {
     return RATING_MIN_X10 + t * (RATING_MAX_X10 - RATING_MIN_X10)
   }
 
-  for (const star of ratingStars) {
-    star.addEventListener('click', (e) => {
-      e.preventDefault()
-      e.stopPropagation()
-      const ratingX10 = Number(star.dataset.ratingX10)
-      if (Number.isFinite(ratingX10)) setMinRating(ratingX10)
-    })
-  }
+  ratingStrip.addEventListener('contextmenu', (e) => e.preventDefault())
 
   searchPanel.addEventListener('pointerdown', (e) => {
     const target = e.target as Element | null
     if (!target?.closest('#rating-filter')) return
     if (e.button !== 0 || pointerId !== -1) return
+    e.preventDefault()
     const star = target.closest<HTMLButtonElement>('.rating-star')
     const ratingX10 = Number(star?.dataset.ratingX10)
-    tappedRatingX10 = star && Number.isFinite(ratingX10) ? ratingX10 : null
     pointerId = e.pointerId
-    dragStartX = e.clientX
-    dragStartY = e.clientY
-    dragging = false
+    dragging = true
+    isDraggingFilter = true
+    searchPanel.classList.add('dragging')
+    searchInput.readOnly = true
+    searchInput.blur()
+    prevGsDisabled = gs.disabled
+    gs.disabled = true
+    if (star && Number.isFinite(ratingX10)) setMinRating(ratingX10)
+    else setMinRating(ratingFromClientX(e.clientX))
     searchPanel.setPointerCapture(pointerId)
   })
 
   searchPanel.addEventListener('pointermove', (e) => {
-    if (e.pointerId !== pointerId) return
-
-    const dx = e.clientX - dragStartX
-    const dy = e.clientY - dragStartY
-
-    if (!dragging) {
-      if (Math.abs(dx) <= RATING_DRAG_THRESHOLD_PX || Math.abs(dx) <= Math.abs(dy)) return
-      dragging = true
-      isDraggingFilter = true
-      searchPanel.classList.add('dragging')
-      searchInput.readOnly = true
-      searchInput.blur()
-      prevGsDisabled = gs.disabled
-      gs.disabled = true
-      setMinRating(ratingFromClientX(e.clientX))
-    }
-
+    if (e.pointerId !== pointerId || !dragging) return
     e.preventDefault()
     setMinRating(ratingFromClientX(e.clientX))
   })
@@ -633,12 +612,7 @@ function setupRatingFilter() {
     if (e.pointerId !== pointerId) return
     if (searchPanel.hasPointerCapture(pointerId)) searchPanel.releasePointerCapture(pointerId)
     pointerId = -1
-    if (!dragging) {
-      if (tappedRatingX10 != null) setMinRating(tappedRatingX10)
-      tappedRatingX10 = null
-      return
-    }
-    tappedRatingX10 = null
+    if (!dragging) return
 
     dragging = false
     isDraggingFilter = false
