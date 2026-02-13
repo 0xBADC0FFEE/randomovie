@@ -62,24 +62,80 @@
         margin-top: 8px;
         display: flex;
         align-items: center;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
       }
       #rating-strip {
         flex: 1;
-        height: 26px;
+        display: flex;
+        justify-content: space-around;
+        align-items: center;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
+      }
+      .rating-star {
+        width: 32px;
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 0;
+        background: none;
+        appearance: none;
+        -webkit-appearance: none;
+        padding: 0;
+        margin: 0;
+        cursor: pointer;
+        touch-action: none;
+        outline: none;
+        box-shadow: none;
+        -webkit-tap-highlight-color: transparent;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
+      }
+      .rating-star:focus,
+      .rating-star:focus-visible,
+      .rating-star:active {
+        outline: none;
+        box-shadow: none;
+        background: none;
+      }
+      .rating-star svg {
+        width: 22px;
+        height: 22px;
         display: block;
-        border-radius: 10px;
-        background: linear-gradient(90deg, rgba(95,108,129,0.14), rgba(255,241,189,0.08));
+        pointer-events: none;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      .rating-star path {
+        fill: rgba(118, 123, 132, 0.55);
+        transition: fill 0.16s ease;
+        pointer-events: none;
+      }
+      .rating-star.active path {
+        fill: rgba(173, 178, 188, 0.95);
+      }
+      .rating-star.inactive path {
+        fill: rgba(118, 123, 132, 0.55);
       }
       #search-hint {
-        margin-top: 6px;
-        min-height: 14px;
+        margin-top: 0;
+        min-height: 0;
+        height: 0;
+        overflow: hidden;
         font: 500 12px/1 -apple-system, BlinkMacSystemFont, sans-serif;
         color: rgba(255, 212, 146, 0.85);
         opacity: 0;
-        transition: opacity 0.2s;
+        transition: opacity 0.2s, height 0.2s, margin-top 0.2s;
         pointer-events: none;
       }
       #search-hint.show {
+        margin-top: 6px;
+        height: 14px;
         opacity: 1;
       }
     </style>
@@ -89,7 +145,13 @@
     <div id="search-panel">
       <input id="search" type="text" placeholder="A movie like..." autocomplete="off" enterkeyhint="search" />
       <div id="rating-filter">
-        <canvas id="rating-strip"></canvas>
+        <div id="rating-strip">
+          <button class="rating-star inactive" type="button" data-rating-x10="50" aria-label="Minimum rating 5.0"><svg viewBox="0 0 16 16" aria-hidden="true"><path /></svg></button>
+          <button class="rating-star inactive" type="button" data-rating-x10="60" aria-label="Minimum rating 6.0"><svg viewBox="0 0 16 16" aria-hidden="true"><path /></svg></button>
+          <button class="rating-star inactive" type="button" data-rating-x10="65" aria-label="Minimum rating 6.5"><svg viewBox="0 0 16 16" aria-hidden="true"><path /></svg></button>
+          <button class="rating-star inactive" type="button" data-rating-x10="75" aria-label="Minimum rating 7.5"><svg viewBox="0 0 16 16" aria-hidden="true"><path /></svg></button>
+          <button class="rating-star inactive" type="button" data-rating-x10="80" aria-label="Minimum rating 8.0"><svg viewBox="0 0 16 16" aria-hidden="true"><path /></svg></button>
+        </div>
       </div>
       <div id="search-hint" aria-live="polite"></div>
     </div>

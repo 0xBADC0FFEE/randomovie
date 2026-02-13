@@ -50,7 +50,6 @@ const RATING_MIN_X10 = 50
 const RATING_MAX_X10 = 80
 const RATING_STEP_X10 = 5
 const ICON_RATINGS_X10 = [50, 60, 65, 75, 80]
-const RATING_STRIP_PAD_X = 12
 const RATING_DRAG_THRESHOLD_PX = 8
 const FILTER_REPLACE_BATCH = 14
 const FILTER_SWAP_TIMEOUT = 500
@@ -66,9 +65,11 @@ const canvas = document.getElementById('canvas') as HTMLCanvasElement
 const ctx = canvas.getContext('2d')!
 const searchPanel = document.getElementById('search-panel') as HTMLDivElement
 const searchInput = document.getElementById('search') as HTMLInputElement
-const ratingStrip = document.getElementById('rating-strip') as HTMLCanvasElement
+const ratingStrip = document.getElementById('rating-strip') as HTMLDivElement
+const ratingStars = Array.from(
+  ratingStrip.querySelectorAll<HTMLButtonElement>('.rating-star'),
+)
 const searchHint = document.getElementById('search-hint') as HTMLDivElement
-const ratingCtx = ratingStrip.getContext('2d')!
 
 function resize() {
   const dpr = window.devicePixelRatio || 1
@@ -80,7 +81,6 @@ function resize() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   vp.width = w
   vp.height = h
-  drawRatingStrip()
 }
 
 function onVisualViewportChange() {
@@ -157,7 +157,13 @@ function hasVisibleSwapFx(): boolean {
 }
 
 function updateRatingUI() {
-  drawRatingStrip()
+  for (let i = 0; i < ratingStars.length; i++) {
+    const star = ratingStars[i]
+    const iconRatingX10 = Number(star.dataset.ratingX10 || ICON_RATINGS_X10[i] || RATING_MIN_X10)
+    const active = Number.isFinite(iconRatingX10) && iconRatingX10 >= minRatingX10
+    star.classList.toggle('active', active)
+    star.classList.toggle('inactive', !active)
+  }
 }
 
 function showHint(text: string) {
@@ -169,49 +175,27 @@ function showHint(text: string) {
   }, HINT_DURATION_MS)
 }
 
-function drawRatingStrip() {
-  if (!ratingStrip || !ratingCtx || searchPanel.style.display === 'none') return
-
-  const dpr = window.devicePixelRatio || 1
-  const rect = ratingStrip.getBoundingClientRect()
-  const width = Math.max(1, Math.round(rect.width * dpr))
-  const height = Math.max(1, Math.round(rect.height * dpr))
-  if (ratingStrip.width !== width || ratingStrip.height !== height) {
-    ratingStrip.width = width
-    ratingStrip.height = height
+function pointsToPathD(points: Array<{ x: number, y: number }>): string {
+  if (points.length === 0) return ''
+  let d = `M ${points[0].x.toFixed(3)} ${points[0].y.toFixed(3)}`
+  for (let i = 1; i < points.length; i++) {
+    const pt = points[i]
+    d += ` L ${pt.x.toFixed(3)} ${pt.y.toFixed(3)}`
   }
+  d += ' Z'
+  return d
+}
 
-  ratingCtx.setTransform(dpr, 0, 0, dpr, 0, 0)
-  ratingCtx.clearRect(0, 0, rect.width, rect.height)
-
-  const padX = RATING_STRIP_PAD_X
-  const y = rect.height * 0.52
-  const count = ICON_RATINGS_X10.length
-  const gap = count > 1 ? (rect.width - padX * 2) / (count - 1) : 0
-  const radius = Math.min(8, rect.height * 0.28)
-  const progress = (minRatingX10 - RATING_MIN_X10) / (RATING_MAX_X10 - RATING_MIN_X10)
-
-  for (let i = 0; i < ICON_RATINGS_X10.length; i++) {
-    const r = ICON_RATINGS_X10[i]
-    const x = padX + gap * i
-    const { points } = buildRatingMorphPath({ ratingX10: r, cx: x, cy: y, radius })
-
-    ratingCtx.beginPath()
-    for (let p = 0; p < points.length; p++) {
-      const pt = points[p]
-      if (p === 0) ratingCtx.moveTo(pt.x, pt.y)
-      else ratingCtx.lineTo(pt.x, pt.y)
-    }
-    ratingCtx.closePath()
-
-    const iconProgress = count <= 1 ? 1 : i / (count - 1)
-    if (iconProgress >= progress) {
-      ratingCtx.fillStyle = 'rgba(255, 243, 184, 0.95)'
-    } else {
-      ratingCtx.fillStyle = 'rgba(114, 128, 153, 0.45)'
-    }
-    ratingCtx.fill()
+function initRatingStripIcons() {
+  for (let i = 0; i < ratingStars.length; i++) {
+    const star = ratingStars[i]
+    const ratingX10 = Number(star.dataset.ratingX10 || ICON_RATINGS_X10[i] || RATING_MIN_X10)
+    const path = star.querySelector('path')
+    if (!path) continue
+    const { points } = buildRatingMorphPath({ ratingX10, cx: 8, cy: 8, radius: 4.4 })
+    path.setAttribute('d', pointsToPathD(points))
   }
+  updateRatingUI()
 }
 
 function setMinRating(next: number) {
@@ -587,22 +571,35 @@ function setupRatingFilter() {
   let dragStartX = 0
   let dragStartY = 0
   let dragging = false
+  let tappedRatingX10: number | null = null
   let prevGsDisabled = false
 
   function ratingFromClientX(clientX: number): number {
     const rect = ratingStrip.getBoundingClientRect()
     if (rect.width <= 0) return minRatingX10
-    const left = rect.left + RATING_STRIP_PAD_X
-    const right = rect.right - RATING_STRIP_PAD_X
+    const left = rect.left
+    const right = rect.right
     const x = Math.max(left, Math.min(right, clientX))
     const t = (x - left) / Math.max(1, right - left)
     return RATING_MIN_X10 + t * (RATING_MAX_X10 - RATING_MIN_X10)
+  }
+
+  for (const star of ratingStars) {
+    star.addEventListener('click', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const ratingX10 = Number(star.dataset.ratingX10)
+      if (Number.isFinite(ratingX10)) setMinRating(ratingX10)
+    })
   }
 
   searchPanel.addEventListener('pointerdown', (e) => {
     const target = e.target as Element | null
     if (!target?.closest('#rating-filter')) return
     if (e.button !== 0 || pointerId !== -1) return
+    const star = target.closest<HTMLButtonElement>('.rating-star')
+    const ratingX10 = Number(star?.dataset.ratingX10)
+    tappedRatingX10 = star && Number.isFinite(ratingX10) ? ratingX10 : null
     pointerId = e.pointerId
     dragStartX = e.clientX
     dragStartY = e.clientY
@@ -636,7 +633,12 @@ function setupRatingFilter() {
     if (e.pointerId !== pointerId) return
     if (searchPanel.hasPointerCapture(pointerId)) searchPanel.releasePointerCapture(pointerId)
     pointerId = -1
-    if (!dragging) return
+    if (!dragging) {
+      if (tappedRatingX10 != null) setMinRating(tappedRatingX10)
+      tappedRatingX10 = null
+      return
+    }
+    tappedRatingX10 = null
 
     dragging = false
     isDraggingFilter = false
@@ -713,6 +715,7 @@ function handleLongPress(col: number, row: number) {
 
 async function init() {
   safeTop = getSafeAreaTop()
+  initRatingStripIcons()
   resize()
   window.addEventListener('resize', () => { resize(); scheduleRender() })
   if (window.visualViewport) {
