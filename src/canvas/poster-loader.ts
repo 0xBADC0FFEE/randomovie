@@ -1,7 +1,8 @@
 import { CELL_W } from './viewport.ts'
 
 const TMDB_IMG_BASE = 'https://image.tmdb.org/t/p/'
-const MAX_CONCURRENT = 18
+const DEFAULT_MAX_CONCURRENT = 18
+const MOTION_MAX_CONCURRENT = 8
 const TMDB_SIZES = [92, 154, 185, 342, 500, 780] as const
 
 export type TmdbSize = (typeof TMDB_SIZES)[number]
@@ -12,6 +13,7 @@ let inFlight = 0
 const queue: { cellKey: string; posterPath: string; size: TmdbSize }[] = []
 const queued = new Set<string>()
 let onLoad: (() => void) | undefined
+let currentMaxConcurrent = DEFAULT_MAX_CONCURRENT
 
 function queueKey(cellKey: string, size: TmdbSize): string {
   return `${cellKey}@${size}`
@@ -19,6 +21,17 @@ function queueKey(cellKey: string, size: TmdbSize): string {
 
 export function setOnLoad(cb: () => void) {
   onLoad = cb
+}
+
+export function setMaxConcurrent(n: number) {
+  const next = Math.max(1, Math.round(n))
+  if (next === currentMaxConcurrent) return
+  currentMaxConcurrent = next
+  drainQueue()
+}
+
+export function setMotionProfile(active: boolean) {
+  setMaxConcurrent(active ? MOTION_MAX_CONCURRENT : DEFAULT_MAX_CONCURRENT)
 }
 
 export function pickSize(scale: number, dpr: number): TmdbSize {
@@ -52,7 +65,7 @@ export function getBestAvailable(cellKey: string, size: TmdbSize): HTMLImageElem
 export function load(cellKey: string, posterPath: string, size: TmdbSize): void {
   if (!posterPath) return
   if (store.get(cellKey)?.has(size)) return
-  if (inFlight >= MAX_CONCURRENT) {
+  if (inFlight >= currentMaxConcurrent) {
     // O(1) dedupe for hot scroll/preload path
     const qk = queueKey(cellKey, size)
     if (!queued.has(qk)) {
@@ -74,6 +87,7 @@ function fireLoad(cellKey: string, posterPath: string, size: TmdbSize): void {
   inFlight++
   const img = new Image()
   img.crossOrigin = 'anonymous'
+  img.decoding = 'async'
   img.src = `${TMDB_IMG_BASE}w${size}${posterPath}`
   const done = () => { inFlight--; drainQueue() }
   img.onload = () => { done(); onLoad?.() }
@@ -82,7 +96,7 @@ function fireLoad(cellKey: string, posterPath: string, size: TmdbSize): void {
 }
 
 function drainQueue(): void {
-  while (inFlight < MAX_CONCURRENT && queue.length > 0) {
+  while (inFlight < currentMaxConcurrent && queue.length > 0) {
     const item = queue.shift()!
     queued.delete(queueKey(item.cellKey, item.size))
     if (store.get(item.cellKey)?.has(item.size)) continue

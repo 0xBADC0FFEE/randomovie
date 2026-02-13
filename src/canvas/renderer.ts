@@ -61,6 +61,7 @@ export function render(
   titlesIndex?: TitlesIndex | null,
   wave?: WaveState | null,
   swapFx?: Map<string, FilterSwapFxEntry>,
+  renderDpr?: number,
 ) {
   ctx.clearRect(0, 0, vp.width, vp.height)
 
@@ -68,7 +69,7 @@ export function render(
   const cellScreenW = CELL_W * vp.scale
   const cellScreenH = CELL_H * vp.scale
 
-  const dpr = window.devicePixelRatio || 1
+  const dpr = (renderDpr ?? window.devicePixelRatio) || 1
   const size = Posters.pickSize(vp.scale, dpr)
 
   const now = performance.now()
@@ -217,10 +218,10 @@ function findBestStashed(
   return undefined
 }
 
-export function preloadPosters(vp: Viewport, grid: Grid) {
+export function preloadPosters(vp: Viewport, grid: Grid, renderDpr?: number) {
   const range = getVisibleRange(vp)
   const preloadRange = getVisibleRange(vp, PRELOAD_BUFFER)
-  const dpr = window.devicePixelRatio || 1
+  const dpr = (renderDpr ?? window.devicePixelRatio) || 1
   const size = Posters.pickSize(vp.scale, dpr)
   const toLoad: { col: number; row: number; cellKey: string; posterPath: string }[] = []
   const cx = (preloadRange.minCol + preloadRange.maxCol) / 2

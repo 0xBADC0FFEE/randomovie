@@ -5,7 +5,7 @@ import type { FilterSwapFxEntry } from './canvas/renderer.ts'
 import { createGrid, fillRange, evictOutside, clearGrid, setCell } from './engine/grid.ts'
 import { generateMockIndex, parseEmbeddings } from './engine/embeddings.ts'
 import type { EmbeddingsIndex, MovieEntry } from './engine/embeddings.ts'
-import { setOnLoad, evictImages, clearAllImages, stash, restore, pickSize, load as loadPoster } from './canvas/poster-loader.ts'
+import { setOnLoad, setMotionProfile, evictImages, clearAllImages, stash, restore, pickSize, load as loadPoster } from './canvas/poster-loader.ts'
 import { startWave, isWaveDone } from './canvas/wave.ts'
 import type { WaveState, OldCellData } from './canvas/wave.ts'
 import { createAnimation, animateViewport } from './canvas/animation.ts'
@@ -46,6 +46,10 @@ const FILL_PER_FRAME = 6
 const IDLE_FILL_MAX = 16
 const SEARCH_DEBOUNCE = 150
 const FILL_DELAY = 300
+const MOTION_DPR_CAP = 0.75
+const RESTORE_DEBOUNCE_MS = 160
+const MOTION_VELOCITY_THRESHOLD = 0.35
+const DPR_SWITCH_EPS = 0.05
 
 const RATING_MIN_X10 = 50
 const RATING_MAX_X10 = 80
@@ -71,16 +75,35 @@ const ratingStars = Array.from(
 )
 const searchHint = document.getElementById('search-hint') as HTMLDivElement
 
-function resize() {
-  const dpr = window.devicePixelRatio || 1
+let nativeDpr = window.devicePixelRatio || 1
+let motionDpr = Math.min(nativeDpr, nativeDpr * MOTION_DPR_CAP)
+let idleDpr = nativeDpr
+let currentDpr = idleDpr
+let lastMotionTs = 0
+
+function refreshDprTargets() {
+  nativeDpr = window.devicePixelRatio || 1
+  idleDpr = nativeDpr
+  motionDpr = Math.min(nativeDpr, nativeDpr * MOTION_DPR_CAP)
+}
+
+function resize(dpr = currentDpr) {
+  const useDpr = Math.max(0.1, dpr)
   const rect = canvas.getBoundingClientRect()
   const w = rect.width
   const h = rect.height
-  canvas.width = Math.round(w * dpr)
-  canvas.height = Math.round(h * dpr)
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  canvas.width = Math.round(w * useDpr)
+  canvas.height = Math.round(h * useDpr)
+  ctx.setTransform(useDpr, 0, 0, useDpr, 0, 0)
   vp.width = w
   vp.height = h
+}
+
+function maybeApplyDpr(nextDpr: number): boolean {
+  if (Math.abs(nextDpr - currentDpr) < DPR_SWITCH_EPS) return false
+  currentDpr = nextDpr
+  resize(currentDpr)
+  return true
 }
 
 function onVisualViewportChange() {
@@ -381,7 +404,7 @@ function enforceMinRating() {
 
     const now = performance.now()
     const visible = getVisibleRange(vp)
-    const targetSize = pickSize(vp.scale, window.devicePixelRatio || 1)
+    const targetSize = pickSize(vp.scale, currentDpr)
     let changed = 0
     let processed = 0
     while (processed < FILTER_REPLACE_BATCH && ratingReplaceQueue.length > 0) {
@@ -455,12 +478,12 @@ function maybeEvictOutside() {
 }
 
 function maybePreloadPosters(force = false) {
-  const dpr = window.devicePixelRatio || 1
+  const dpr = currentDpr
   const size = pickSize(vp.scale, dpr)
   const sig = `${rangeSig(PRELOAD_BUFFER)}:${size}`
   if (!force && sig === lastPreloadSig) return
   lastPreloadSig = sig
-  preloadPosters(vp, grid)
+  preloadPosters(vp, grid, currentDpr)
 }
 
 function cancelIdleFill() {
@@ -492,7 +515,7 @@ function scheduleRepaint() {
   repaintScheduled = true
   requestAnimationFrame(() => {
     repaintScheduled = false
-    render(ctx, vp, grid, titlesIndex, activeWave, filterSwapFx)
+    render(ctx, vp, grid, titlesIndex, activeWave, filterSwapFx, currentDpr)
   })
 }
 
@@ -514,16 +537,25 @@ function scheduleRender(immediate?: boolean) {
 }
 
 function update() {
-  if (gs.active) {
+  const now = performance.now()
+  const speed = Math.hypot(gs.velocityX, gs.velocityY)
+  const isInMotion = gs.active || speed > MOTION_VELOCITY_THRESHOLD
+  if (isInMotion) {
+    lastMotionTs = now
     cancelIdleFill()
-    const speed = Math.sqrt(gs.velocityX ** 2 + gs.velocityY ** 2)
     if (activeWave && speed > 1 && !lpInterval) activeWave = null
+  }
+  setMotionProfile(isInMotion)
+  let targetDpr = currentDpr
+  if (isInMotion) targetDpr = motionDpr
+  else if (now - lastMotionTs >= RESTORE_DEBOUNCE_MS) targetDpr = idleDpr
+  if (maybeApplyDpr(targetDpr)) {
+    lastPreloadSig = ''
   }
 
   let n = 0
   if (!fillPending) {
     if (gs.active) {
-      const speed = Math.sqrt(gs.velocityX ** 2 + gs.velocityY ** 2)
       const t = Math.min(speed / 25, 1)
       const noiseFactor = 0.08 + t * 0.72    // 0.08 -> 0.8
       const randomChance = 0.05 + t * 0.55   // 0.05 -> 0.6
@@ -535,7 +567,7 @@ function update() {
     }
   }
 
-  render(ctx, vp, grid, titlesIndex, activeWave, filterSwapFx)
+  render(ctx, vp, grid, titlesIndex, activeWave, filterSwapFx, currentDpr)
 
   if (activeWave) {
     if (isWaveDone(activeWave, performance.now())) {
@@ -867,8 +899,16 @@ async function init() {
   safeTop = getSafeAreaTop()
   generationWorker.onmessage = handleGenerationWorkerMessage
   initRatingStripIcons()
+  refreshDprTargets()
+  currentDpr = idleDpr
+  setMotionProfile(false)
   resize()
   window.addEventListener('resize', () => {
+    refreshDprTargets()
+    const speed = Math.hypot(gs.velocityX, gs.velocityY)
+    const isInMotion = gs.active || speed > MOTION_VELOCITY_THRESHOLD
+    currentDpr = isInMotion ? motionDpr : idleDpr
+    setMotionProfile(isInMotion)
     resize()
     lastEvictSig = ''
     lastPreloadSig = ''
