@@ -483,8 +483,11 @@ async function init() {
     if (e.touches.length !== 2) return
     const now = performance.now()
     if (now - lastDblTouchTime < 400) {
-      if (!debugOverlay) debugOverlay = createDebugOverlay()
-      debugOverlay.toggle()
+      if (!debugOverlay) {
+        debugOverlay = createDebugOverlay()
+      } else {
+        debugOverlay.toggle()
+      }
       scheduleRender()
       lastDblTouchTime = 0
     } else {
