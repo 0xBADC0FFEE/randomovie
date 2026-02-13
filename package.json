@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test --experimental-strip-types src/ui/rating-morph.test.ts"
   },
   "devDependencies": {
     "typescript": "~5.9.3",

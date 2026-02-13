@@ -9,6 +9,7 @@ export interface BuildRatingMorphPathParams {
   cy: number
   radius: number
   detail?: number
+  triangleConcavity?: number
 }
 
 export interface MorphPathData {
@@ -57,13 +58,18 @@ function buildCirclePoints(cx: number, cy: number, radius: number, detail: numbe
   return points
 }
 
-function buildDiamondPoints(cx: number, cy: number, radius: number): MorphPoint[] {
-  return [
-    { x: cx, y: cy - radius },
-    { x: cx + radius, y: cy },
-    { x: cx, y: cy + radius },
-    { x: cx - radius, y: cy },
-  ]
+function centerPointsY(points: MorphPoint[], cy: number): MorphPoint[] {
+  let minY = Number.POSITIVE_INFINITY
+  let maxY = Number.NEGATIVE_INFINITY
+  for (const p of points) {
+    if (p.y < minY) minY = p.y
+    if (p.y > maxY) maxY = p.y
+  }
+  const dy = cy - (minY + maxY) / 2
+  if (Math.abs(dy) > 0) {
+    for (const p of points) p.y += dy
+  }
+  return points
 }
 
 function buildStarPoints(cx: number, cy: number, outerR: number, innerR: number, spikes: number): MorphPoint[] {
@@ -80,7 +86,21 @@ function buildStarPoints(cx: number, cy: number, outerR: number, innerR: number,
   return points
 }
 
-/** Builds a closed polygon path for a dot->diamond->star rating morph. */
+function buildConcaveTrianglePoints(
+  cx: number,
+  cy: number,
+  radius: number,
+  triangleConcavity = 0.24,
+): MorphPoint[] {
+  const concavity = clamp(triangleConcavity, 0, 0.45)
+  // 0.5 is the edge midpoint radius for an equilateral triangle (flat face).
+  // To make faces concave, inner points must be strictly inside 0.5 * R.
+  const innerRatio = clamp(0.5 - concavity * 0.5, 0.15, 0.5)
+  const points = buildStarPoints(cx, cy, radius, radius * innerRatio, 3)
+  return centerPointsY(points, cy)
+}
+
+/** Builds a closed polygon path for a dot->triangle->star rating morph. */
 export function buildRatingMorphPath(params: BuildRatingMorphPathParams): MorphPathData {
   const idx = quantizeToIconIndex(params.ratingX10)
   const t = idx / (ICON_LEVELS_X10.length - 1)
@@ -94,7 +114,15 @@ export function buildRatingMorphPath(params: BuildRatingMorphPathParams): MorphP
     return { points: buildCirclePoints(params.cx, params.cy, r * 0.76, detail), t }
   }
   if (idx === 2) {
-    return { points: buildDiamondPoints(params.cx, params.cy, r * 0.94), t }
+    return {
+      points: buildConcaveTrianglePoints(
+        params.cx,
+        params.cy,
+        r * 1,
+        params.triangleConcavity ?? 0.30,
+      ),
+      t,
+    }
   }
   if (idx === 3) {
     return { points: buildStarPoints(params.cx, params.cy, r, r * 0.38, 4), t }
