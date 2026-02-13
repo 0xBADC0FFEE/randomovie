@@ -13,6 +13,7 @@ import { createDebugOverlay, type DebugOverlay } from './debug/overlay.ts'
 import type { TitlesIndex } from './engine/titles.ts'
 import { TOP_K, buildGenerationTarget, generateMovie } from './engine/generator.ts'
 import { buildRatingMorphPath, clampRatingX10 } from './ui/rating-morph.ts'
+import { parseSearchCommand } from './ui/search-command.ts'
 
 function getSafeAreaTop(): number {
   const el = document.createElement('div')
@@ -58,6 +59,7 @@ const ICON_RATINGS_X10 = [50, 60, 65, 75, 80]
 const FILTER_REPLACE_BATCH = 14
 const FILTER_SWAP_TIMEOUT = 500
 const HINT_DURATION_MS = 1200
+const TRACKPAD_PREF_KEY = 'vibefind.trackpad_pan_mac'
 
 const rIC: typeof requestIdleCallback = window.requestIdleCallback
   ?? ((cb) => setTimeout(() => cb({
@@ -155,6 +157,7 @@ let ratingReplaceRaf = 0
 let ratingReplaceQueue: string[] = []
 let hintTimer = 0
 let isDraggingFilter = false
+let trackpadPanEnabled = false
 const filterSwapFx = new Map<string, FilterSwapFxEntry>()
 const allowAll = (_tmdbId: number): boolean => true
 let lastEvictSig = ''
@@ -343,6 +346,50 @@ function showHint(text: string) {
   hintTimer = window.setTimeout(() => {
     searchHint.classList.remove('show')
   }, HINT_DURATION_MS)
+}
+
+function isMacOS(): boolean {
+  const uaData = navigator as Navigator & { userAgentData?: { platform?: string } }
+  const platform = (uaData.userAgentData?.platform || navigator.platform || navigator.userAgent || '').toLowerCase()
+  return platform.includes('mac')
+}
+
+function loadTrackpadPanPreference(): boolean {
+  if (!isMacOS()) return false
+  try {
+    return localStorage.getItem(TRACKPAD_PREF_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function persistTrackpadPanPreference() {
+  if (!isMacOS()) return
+  try {
+    localStorage.setItem(TRACKPAD_PREF_KEY, trackpadPanEnabled ? '1' : '0')
+  } catch {
+    // Ignore storage failures (private mode, denied storage)
+  }
+}
+
+function applyTrackpadPanEnabled(enabled: boolean) {
+  trackpadPanEnabled = enabled
+  gs.trackpadPanEnabled = enabled
+}
+
+function handleSlashCommand(query: string): boolean {
+  const command = parseSearchCommand(query)
+  if (command !== 'trackpad') return false
+
+  if (!isMacOS()) {
+    showHint('Trackpad command: macOS only')
+    return true
+  }
+
+  applyTrackpadPanEnabled(!trackpadPanEnabled)
+  persistTrackpadPanPreference()
+  showHint(`Trackpad swipe pan: ${trackpadPanEnabled ? 'ON' : 'OFF'}`)
+  return true
 }
 
 function pointsToPathD(points: Array<{ x: number, y: number }>): string {
@@ -678,8 +725,10 @@ function exitSearchMode() {
 
 /** Handle search input: post query to worker */
 function handleSearch(query: string) {
-  if (!searchReady || !query.trim()) return
-  searchWorker.postMessage({ type: 'search', seq: ++searchSeq, query: query.trim(), minRatingX10 })
+  const normalized = query.trim()
+  if (!searchReady || !normalized) return
+  if (normalized.startsWith('/')) return
+  searchWorker.postMessage({ type: 'search', seq: ++searchSeq, query: normalized, minRatingX10 })
 }
 
 /** Handle worker responses */
@@ -756,7 +805,23 @@ function setupSearch() {
   })
 
   searchInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' || e.key === 'Enter') {
+    if (e.key === 'Escape') {
+      exitSearchMode()
+      return
+    }
+    if (e.key === 'Enter') {
+      const query = searchInput.value.trim()
+      if (!query) {
+        exitSearchMode()
+        return
+      }
+      if (query.startsWith('/')) {
+        if (!handleSlashCommand(query)) showHint('Unknown command')
+        searchSeq++
+        exitSearchMode()
+        return
+      }
+      handleSearch(query)
       exitSearchMode()
     }
   })
@@ -765,6 +830,11 @@ function setupSearch() {
     clearTimeout(searchDebounceId)
     searchHint.classList.remove('show')
     searchDebounceId = window.setTimeout(() => {
+      const query = searchInput.value.trim()
+      if (query.startsWith('/')) {
+        searchSeq++
+        return
+      }
       handleSearch(searchInput.value)
     }, SEARCH_DEBOUNCE)
   })
@@ -903,6 +973,7 @@ async function init() {
   currentDpr = idleDpr
   setMotionProfile(false)
   resize()
+  applyTrackpadPanEnabled(loadTrackpadPanPreference())
   window.addEventListener('resize', () => {
     refreshDprTargets()
     const speed = Math.hypot(gs.velocityX, gs.velocityY)

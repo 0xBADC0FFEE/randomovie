@@ -16,6 +16,7 @@ export interface GestureState {
   pinchCenterY: number
   animId: number
   disabled: boolean
+  trackpadPanEnabled: boolean
 }
 
 export function createGestureState(): GestureState {
@@ -26,6 +27,7 @@ export function createGestureState(): GestureState {
     pinchDist: 0, pinchCenterX: 0, pinchCenterY: 0,
     animId: 0,
     disabled: false,
+    trackpadPanEnabled: false,
   }
 }
 
@@ -186,6 +188,14 @@ export function setupGestures(
   el.addEventListener('wheel', (e) => {
     e.preventDefault()
     if (gs.disabled) return
+    if (gs.trackpadPanEnabled && !e.ctrlKey && !e.metaKey) {
+      vp.offsetX -= e.deltaX
+      vp.offsetY -= e.deltaY
+      gs.velocityX = -e.deltaX
+      gs.velocityY = -e.deltaY
+      onUpdate()
+      return
+    }
     const zoomFactor = e.deltaY > 0 ? 0.95 : 1.05
     const newScale = Math.min(MAX_SCALE, Math.max(getMinScale(vp), vp.scale * zoomFactor))
     const scaleChange = newScale / vp.scale
