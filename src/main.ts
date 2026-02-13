@@ -1,4 +1,4 @@
-import { createViewport, centerOn, getVisibleRange, PRELOAD_BUFFER, CELL_W, CELL_H, screenToWorld } from './canvas/viewport.ts'
+import { createViewport, centerOn, getVisibleRange, getCenterOutOffsets, PRELOAD_BUFFER, CELL_W, CELL_H, screenToWorld } from './canvas/viewport.ts'
 import { createGestureState, setupGestures } from './canvas/gestures.ts'
 import { render, preloadPosters } from './canvas/renderer.ts'
 import type { FilterSwapFxEntry } from './canvas/renderer.ts'
@@ -11,7 +11,7 @@ import type { WaveState, OldCellData } from './canvas/wave.ts'
 import { createAnimation, animateViewport } from './canvas/animation.ts'
 import { createDebugOverlay, type DebugOverlay } from './debug/overlay.ts'
 import type { TitlesIndex } from './engine/titles.ts'
-import { generateMovie } from './engine/generator.ts'
+import { TOP_K, buildGenerationTarget, generateMovie } from './engine/generator.ts'
 import { buildRatingMorphPath, clampRatingX10 } from './ui/rating-morph.ts'
 
 function getSafeAreaTop(): number {
@@ -40,10 +40,8 @@ let safeTop = 0
 
 const EVICT_BUFFER = 8
 const GESTURE_BUFFER = 4
-const GESTURE_VISIBLE_FILL = 2
-const GESTURE_FILL = 1
-const GESTURE_VISIBLE_FILL_MS = 2
-const GESTURE_BUFFER_FILL_MS = 1
+const GESTURE_VISIBLE_FILL = 1
+const GESTURE_FILL = 4
 const FILL_PER_FRAME = 6
 const IDLE_FILL_MAX = 16
 const SEARCH_DEBOUNCE = 150
@@ -102,8 +100,14 @@ const grid = createGrid()
 const anim = createAnimation()
 
 const searchWorker = new Worker(new URL('./engine/search.worker.ts', import.meta.url), { type: 'module' })
+const generationWorker = new Worker(new URL('./engine/generator.worker.ts', import.meta.url), { type: 'module' })
 let searchSeq = 0
 let searchReady = false
+let generationReady = false
+let generationEpoch = 0
+let generationReqSeq = 0
+const generationPendingByReq = new Map<number, { cellKey: string; col: number; row: number; epoch: number }>()
+const generationPendingKeys = new Set<string>()
 
 let index: EmbeddingsIndex
 let activeIndex: EmbeddingsIndex
@@ -157,6 +161,133 @@ function rebuildActiveIndex() {
   activeIndex = {
     movies: index.movies.filter((m) => isTmdbAllowed(m.tmdbId)),
   }
+}
+
+function cancelPendingGenerationRequests() {
+  generationPendingByReq.clear()
+  generationPendingKeys.clear()
+}
+
+function syncGenerationWorkerIndex() {
+  generationEpoch++
+  generationReady = false
+  cancelPendingGenerationRequests()
+  generationWorker.postMessage({
+    type: 'init',
+    epoch: generationEpoch,
+    movies: activeIndex.movies.map((m) => ({ tmdbId: m.tmdbId, embedding: m.embedding })),
+  })
+}
+
+function pickWeightedTmdbId(tmdbIds: number[]): number | null {
+  if (tmdbIds.length === 0) return null
+  let total = 0
+  for (let i = 0; i < tmdbIds.length; i++) total += tmdbIds.length - i
+  let r = Math.random() * total
+  for (let i = 0; i < tmdbIds.length; i++) {
+    r -= (tmdbIds.length - i)
+    if (r <= 0) return tmdbIds[i]
+  }
+  return tmdbIds[0] ?? null
+}
+
+function pickRandomActiveEntry(): MovieEntry | null {
+  const movies = activeIndex.movies
+  if (movies.length === 0) return null
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const entry = movies[Math.floor(Math.random() * movies.length)]
+    if (!grid.onScreen.has(entry.tmdbId)) return entry
+  }
+  for (let i = 0; i < movies.length; i++) {
+    const entry = movies[i]
+    if (!grid.onScreen.has(entry.tmdbId)) return entry
+  }
+  return null
+}
+
+function queueWorkerFill(
+  range: { minCol: number; maxCol: number; minRow: number; maxRow: number },
+  maxNew: number,
+  noiseFactor: number,
+  randomChance: number,
+): number {
+  if (maxNew <= 0) return 0
+  const cols = range.maxCol - range.minCol + 1
+  const rows = range.maxRow - range.minRow + 1
+  let queued = 0
+
+  for (const [dc, dr] of getCenterOutOffsets(cols, rows)) {
+    if (queued >= maxNew) break
+    const col = range.minCol + dc
+    const row = range.minRow + dr
+    const cellKey = key(col, row)
+    if (grid.cells.has(cellKey) || generationPendingKeys.has(cellKey)) continue
+
+    const target = buildGenerationTarget(col, row, grid, false, noiseFactor, randomChance)
+    if (!target) {
+      const randomEntry = pickRandomActiveEntry()
+      if (!randomEntry) continue
+      setCell(grid, col, row, {
+        tmdbId: randomEntry.tmdbId,
+        posterPath: randomEntry.posterPath,
+        embedding: randomEntry.embedding,
+      })
+      queued++
+      continue
+    }
+
+    if (!generationReady) continue
+
+    const reqId = ++generationReqSeq
+    generationPendingKeys.add(cellKey)
+    generationPendingByReq.set(reqId, { cellKey, col, row, epoch: generationEpoch })
+    generationWorker.postMessage({
+      type: 'topk',
+      reqId,
+      epoch: generationEpoch,
+      target: target.target,
+      exclude: [...grid.onScreen],
+      k: TOP_K,
+    })
+    queued++
+  }
+
+  return queued
+}
+
+function handleGenerationWorkerMessage(e: MessageEvent) {
+  const { type } = e.data
+
+  if (type === 'ready') {
+    if (e.data.epoch === generationEpoch) generationReady = true
+    return
+  }
+
+  if (type !== 'result') return
+  const reqId = e.data.reqId as number
+  const epoch = e.data.epoch as number
+  const req = generationPendingByReq.get(reqId)
+  if (!req) return
+
+  generationPendingByReq.delete(reqId)
+  generationPendingKeys.delete(req.cellKey)
+
+  if (epoch !== generationEpoch || req.epoch !== generationEpoch) return
+  if (grid.cells.has(req.cellKey)) return
+
+  const tmdbIds = e.data.tmdbIds as number[]
+  const candidateIds = tmdbIds.filter((id) => !grid.onScreen.has(id) && isTmdbAllowed(id))
+  const pickedTmdbId = pickWeightedTmdbId(candidateIds)
+  if (!pickedTmdbId) return
+  const entry = movieByTmdbId.get(pickedTmdbId)
+  if (!entry) return
+
+  setCell(grid, req.col, req.row, {
+    tmdbId: entry.tmdbId,
+    posterPath: entry.posterPath,
+    embedding: entry.embedding,
+  })
+  scheduleRepaint()
 }
 
 function hasVisibleSwapFx(): boolean {
@@ -220,6 +351,7 @@ function setMinRating(next: number) {
   minRatingX10 = clamped
   updateRatingUI()
   rebuildActiveIndex()
+  syncGenerationWorkerIndex()
   enforceMinRating()
 
   const q = searchInput.value.trim()
@@ -396,30 +528,8 @@ function update() {
       const noiseFactor = 0.08 + t * 0.72    // 0.08 -> 0.8
       const randomChance = 0.05 + t * 0.55   // 0.05 -> 0.6
 
-      // Keep generation budgeted while panning to avoid row-entry micro-stutters.
-      n = fillRange(
-        grid,
-        getVisibleRange(vp),
-        activeIndex,
-        allowAll,
-        false,
-        GESTURE_VISIBLE_FILL,
-        noiseFactor,
-        randomChance,
-        GESTURE_VISIBLE_FILL_MS,
-      )
-      // Small budget for near-buffer so image preloading still keeps up.
-      n += fillRange(
-        grid,
-        getVisibleRange(vp, GESTURE_BUFFER),
-        activeIndex,
-        allowAll,
-        false,
-        GESTURE_FILL,
-        noiseFactor,
-        randomChance,
-        GESTURE_BUFFER_FILL_MS,
-      )
+      queueWorkerFill(getVisibleRange(vp), GESTURE_VISIBLE_FILL, noiseFactor, randomChance)
+      queueWorkerFill(getVisibleRange(vp, GESTURE_BUFFER), GESTURE_FILL, noiseFactor, randomChance)
     } else {
       n = fillRange(grid, getVisibleRange(vp, PRELOAD_BUFFER), activeIndex, allowAll, fillCoherent, FILL_PER_FRAME)
     }
@@ -454,6 +564,7 @@ function findCenterCell(): [number, number] {
 function focusOn(col: number, row: number, seed?: MovieEntry, delay = 0, center = true) {
   activeWave = null
   filterSwapFx.clear()
+  cancelPendingGenerationRequests()
   clearGrid(grid, clearAllImages)
   lastEvictSig = ''
   lastPreloadSig = ''
@@ -722,6 +833,7 @@ function handleLongPress(col: number, row: number) {
 
   // Clear and regenerate
   filterSwapFx.clear()
+  cancelPendingGenerationRequests()
   clearGrid(grid, clearAllImages)
   lastEvictSig = ''
   lastPreloadSig = ''
@@ -753,6 +865,7 @@ function handleLongPress(col: number, row: number) {
 
 async function init() {
   safeTop = getSafeAreaTop()
+  generationWorker.onmessage = handleGenerationWorkerMessage
   initRatingStripIcons()
   resize()
   window.addEventListener('resize', () => {
@@ -777,6 +890,7 @@ async function init() {
     updateRatingUI()
   }
   rebuildActiveIndex()
+  syncGenerationWorkerIndex()
 
   focusOn(0, 0)
   setupGestures(canvas, vp, gs, scheduleRender, openMovieLink)

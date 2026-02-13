@@ -29,42 +29,42 @@ export interface CellRange {
   maxRow: number
 }
 
-const CENTER_OUT_CACHE_MAX = 64
-const centerOutCache = new Map<string, [number, number][]>()
+const CENTER_OUT_CACHE_MAX = 32
+const centerOutOffsetCache = new Map<string, [number, number][]>()
 
-function rangeKey(range: CellRange): string {
-  return `${range.minCol}:${range.maxCol}:${range.minRow}:${range.maxRow}`
+function sizeKey(cols: number, rows: number): string {
+  return `${cols}:${rows}`
 }
 
-/** Stable center-out coordinate order for a range (cached, reused in hot paths). */
-export function getCenterOutCoords(range: CellRange): [number, number][] {
-  const key = rangeKey(range)
-  const cached = centerOutCache.get(key)
+/** Stable center-out offset order for a range size (translation-invariant cache). */
+export function getCenterOutOffsets(cols: number, rows: number): [number, number][] {
+  const key = sizeKey(cols, rows)
+  const cached = centerOutOffsetCache.get(key)
   if (cached) {
     // Refresh LRU order.
-    centerOutCache.delete(key)
-    centerOutCache.set(key, cached)
+    centerOutOffsetCache.delete(key)
+    centerOutOffsetCache.set(key, cached)
     return cached
   }
 
-  const cx = (range.minCol + range.maxCol) / 2
-  const cy = (range.minRow + range.maxRow) / 2
-  const coords: [number, number][] = []
-  for (let row = range.minRow; row <= range.maxRow; row++) {
-    for (let col = range.minCol; col <= range.maxCol; col++) {
-      coords.push([col, row])
+  const cx = (cols - 1) / 2
+  const cy = (rows - 1) / 2
+  const offsets: [number, number][] = []
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      offsets.push([col, row])
     }
   }
-  coords.sort((a, b) =>
+  offsets.sort((a, b) =>
     (a[0] - cx) ** 2 + (a[1] - cy) ** 2 - (b[0] - cx) ** 2 - (b[1] - cy) ** 2
   )
 
-  centerOutCache.set(key, coords)
-  if (centerOutCache.size > CENTER_OUT_CACHE_MAX) {
-    const oldest = centerOutCache.keys().next().value
-    if (oldest) centerOutCache.delete(oldest)
+  centerOutOffsetCache.set(key, offsets)
+  if (centerOutOffsetCache.size > CENTER_OUT_CACHE_MAX) {
+    const oldest = centerOutOffsetCache.keys().next().value
+    if (oldest) centerOutOffsetCache.delete(oldest)
   }
-  return coords
+  return offsets
 }
 
 /** Visible cell range + buffer rows around viewport */

@@ -5,23 +5,27 @@ import type { Grid, MovieCell } from './grid.ts'
 const NOISE_FACTOR = 0.08
 const RANDOM_CHANCE = 0.05
 const NEIGHBOR_RADIUS = 3
-const TOP_K = 10
+export const TOP_K = 10
 const MOMENTUM = 0.5
 
 export const lastGenStats = { neighborCount: 0, noise: 0, diversityMode: false }
 
-export function generateMovie(
-  col: number,
-  row: number,
-  grid: Grid,
-  index: EmbeddingsIndex,
-  isAllowed: (tmdbId: number) => boolean,
-  coherent = false,
-  noiseFactor?: number,
-  randomChance?: number,
-): MovieCell | null {
-  // Collect filled neighbors within radius
-  const neighbors: { cell: MovieCell; weight: number; dc: number; dr: number }[] = []
+interface NeighborSample {
+  cell: MovieCell
+  weight: number
+  dc: number
+  dr: number
+}
+
+export interface GenerationTarget {
+  target: Float32Array
+  neighborCount: number
+  noise: number
+  diversityMode: boolean
+}
+
+function collectNeighbors(col: number, row: number, grid: Grid): NeighborSample[] {
+  const neighbors: NeighborSample[] = []
   for (let dr = -NEIGHBOR_RADIUS; dr <= NEIGHBOR_RADIUS; dr++) {
     for (let dc = -NEIGHBOR_RADIUS; dc <= NEIGHBOR_RADIUS; dc++) {
       if (dc === 0 && dr === 0) continue
@@ -31,13 +35,23 @@ export function generateMovie(
       neighbors.push({ cell, weight: 1 / d, dc, dr })
     }
   }
+  return neighbors
+}
 
-  // No neighbors — pick random
+export function buildGenerationTarget(
+  col: number,
+  row: number,
+  grid: Grid,
+  coherent = false,
+  noiseFactor?: number,
+  randomChance?: number,
+): GenerationTarget | null {
+  const neighbors = collectNeighbors(col, row, grid)
   if (neighbors.length === 0) {
     lastGenStats.neighborCount = 0
     lastGenStats.noise = 0
     lastGenStats.diversityMode = false
-    return pickRandom(index, grid.onScreen, isAllowed)
+    return null
   }
 
   // Diversity injection: use neighbor blend with high noise instead of pure random
@@ -105,7 +119,32 @@ export function generateMovie(
     target[j] = Math.max(0, Math.min(255, target[j]))
   }
 
-  const candidates = findTopK(index, target, TOP_K, grid.onScreen, isAllowed)
+  return {
+    target,
+    neighborCount: neighbors.length,
+    noise,
+    diversityMode,
+  }
+}
+
+export function generateMovie(
+  col: number,
+  row: number,
+  grid: Grid,
+  index: EmbeddingsIndex,
+  isAllowed: (tmdbId: number) => boolean,
+  coherent = false,
+  noiseFactor?: number,
+  randomChance?: number,
+): MovieCell | null {
+  const generationTarget = buildGenerationTarget(col, row, grid, coherent, noiseFactor, randomChance)
+
+  // No neighbors — pick random
+  if (!generationTarget) {
+    return pickRandom(index, grid.onScreen, isAllowed)
+  }
+
+  const candidates = findTopK(index, generationTarget.target, TOP_K, grid.onScreen, isAllowed)
   if (candidates.length === 0) return null
 
   // Weighted random pick: favor closer matches

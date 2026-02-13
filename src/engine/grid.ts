@@ -1,5 +1,5 @@
 import type { CellRange } from '../canvas/viewport.ts'
-import { getCenterOutCoords } from '../canvas/viewport.ts'
+import { getCenterOutOffsets } from '../canvas/viewport.ts'
 import type { EmbeddingsIndex } from './embeddings.ts'
 import { generateMovie } from './generator.ts'
 
@@ -56,7 +56,11 @@ export function fillRange(
   const startedAt = Number.isFinite(maxMs) ? performance.now() : 0
   let iter = 0
   let generated = 0
-  for (const [col, row] of getCenterOutCoords(range)) {
+  const cols = range.maxCol - range.minCol + 1
+  const rows = range.maxRow - range.minRow + 1
+  for (const [dc, dr] of getCenterOutOffsets(cols, rows)) {
+    const col = range.minCol + dc
+    const row = range.minRow + dr
     if ((iter++ & 15) === 0 && Number.isFinite(maxMs) && (performance.now() - startedAt) >= maxMs) {
       return generated
     }
