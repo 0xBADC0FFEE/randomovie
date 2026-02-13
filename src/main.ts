@@ -1,5 +1,5 @@
 import { createViewport, centerOn, getVisibleRange, getCenterOutOffsets, PRELOAD_BUFFER, CELL_W, CELL_H, screenToWorld } from './canvas/viewport.ts'
-import { createGestureState, setupGestures } from './canvas/gestures.ts'
+import { createGestureState, setupGestures, type TapIntent } from './canvas/gestures.ts'
 import { render, preloadPosters } from './canvas/renderer.ts'
 import type { FilterSwapFxEntry } from './canvas/renderer.ts'
 import { createGrid, fillRange, evictOutside, clearGrid, setCell } from './engine/grid.ts'
@@ -14,6 +14,7 @@ import type { TitlesIndex } from './engine/titles.ts'
 import { TOP_K, buildGenerationTarget, generateMovie } from './engine/generator.ts'
 import { buildRatingMorphPath, clampRatingX10 } from './ui/rating-morph.ts'
 import { parseSearchCommand } from './ui/search-command.ts'
+import { isBackgroundOpen } from './ui/link-open-intent.ts'
 
 function getSafeAreaTop(): number {
   const el = document.createElement('div')
@@ -900,19 +901,33 @@ function setupRatingFilter() {
   searchPanel.addEventListener('pointercancel', finishDrag)
 }
 
-function openMovieLink(sx: number, sy: number) {
-  if (suppressNextTap) { suppressNextTap = false; return }
-  if (searchMode || !titlesIndex) return
+function getImdbLinkAtScreen(sx: number, sy: number): string | null {
+  if (!titlesIndex) return null
   const [wx, wy] = screenToWorld(vp, sx, sy)
   const col = Math.floor(wx / CELL_W)
   const row = Math.floor(wy / CELL_H)
   const cell = grid.cells.get(`${col}:${row}`)
-  if (!cell) return
+  if (!cell) return null
   const idx = titlesIndex.idToIdx.get(cell.tmdbId)
-  if (idx === undefined) return
+  if (idx === undefined) return null
   const imdbNum = titlesIndex.imdbNums[idx]
-  if (!imdbNum) return
-  window.open(`https://www.imdb.com/title/tt${String(imdbNum).padStart(7, '0')}/`, '_blank')
+  if (!imdbNum) return null
+  return `https://www.imdb.com/title/tt${String(imdbNum).padStart(7, '0')}/`
+}
+
+function openMovieLink(sx: number, sy: number, tap?: TapIntent) {
+  if (suppressNextTap) { suppressNextTap = false; return }
+  if (searchMode) return
+  const url = getImdbLinkAtScreen(sx, sy)
+  if (!url) return
+
+  if (isBackgroundOpen(tap)) {
+    const win = window.open(url, '_blank', 'noopener,noreferrer')
+    win?.blur()
+    window.focus()
+    return
+  }
+  window.open(url, '_blank')
 }
 
 function handleLongPress(col: number, row: number) {

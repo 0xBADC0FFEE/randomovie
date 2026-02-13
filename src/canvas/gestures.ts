@@ -3,6 +3,13 @@ import { getMinScale, type Viewport } from './viewport.ts'
 const PAN_DECEL = 0.95
 const MAX_SCALE = 3
 
+export interface TapIntent {
+  source: 'touch' | 'mouse' | 'aux'
+  button: 0 | 1
+  metaKey: boolean
+  ctrlKey: boolean
+}
+
 export interface GestureState {
   panning: boolean
   pinching: boolean
@@ -46,7 +53,7 @@ export function setupGestures(
   vp: Viewport,
   gs: GestureState,
   onUpdate: (immediate?: boolean) => void,
-  onTap?: (sx: number, sy: number) => void,
+  onTap?: (sx: number, sy: number, tap: TapIntent) => void,
 ) {
   let touchStartX = 0, touchStartY = 0, touchStartTime = 0
   let wasPinching = false
@@ -118,7 +125,12 @@ export function setupGestures(
         const dy = gs.lastY - touchStartY
         const dt = performance.now() - touchStartTime
         if (dx * dx + dy * dy < 100 && dt < 300) {
-          onTap(gs.lastX, gs.lastY)
+          onTap(gs.lastX, gs.lastY, {
+            source: 'touch',
+            button: 0,
+            metaKey: false,
+            ctrlKey: false,
+          })
         }
       }
       gs.panning = false
@@ -169,7 +181,12 @@ export function setupGestures(
       const dx = e.clientX - mouseStartX
       const dy = e.clientY - mouseStartY
       if (dx * dx + dy * dy < 25) {
-        onTap(e.clientX, e.clientY)
+        onTap(e.clientX, e.clientY, {
+          source: 'mouse',
+          button: 0,
+          metaKey: e.metaKey,
+          ctrlKey: e.ctrlKey,
+        })
       }
     }
     mouseDown = false
@@ -183,6 +200,18 @@ export function setupGestures(
       gs.active = false
       startInertia(vp, gs, onUpdate)
     }
+  })
+
+  el.addEventListener('auxclick', (e) => {
+    if (e.button !== 1) return
+    e.preventDefault()
+    if (gs.disabled || !onTap) return
+    onTap(e.clientX, e.clientY, {
+      source: 'aux',
+      button: 1,
+      metaKey: e.metaKey,
+      ctrlKey: e.ctrlKey,
+    })
   })
 
   el.addEventListener('wheel', (e) => {
