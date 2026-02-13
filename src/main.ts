@@ -103,6 +103,7 @@ let searchSeq = 0
 let searchReady = false
 
 let index: EmbeddingsIndex
+let activeIndex: EmbeddingsIndex
 let titlesIndex: TitlesIndex | null = null
 let searchMode = false
 let searchCell: [number, number] = [0, 0]
@@ -125,6 +126,7 @@ let ratingReplaceQueue: string[] = []
 let hintTimer = 0
 let isDraggingFilter = false
 const filterSwapFx = new Map<string, FilterSwapFxEntry>()
+const allowAll = (_tmdbId: number): boolean => true
 
 function clampMinRatingX10(v: number): number {
   const clamped = Math.max(RATING_MIN_X10, Math.min(RATING_MAX_X10, clampRatingX10(v)))
@@ -140,6 +142,16 @@ function ratingForTmdb(tmdbId: number): number | null {
 function isTmdbAllowed(tmdbId: number): boolean {
   const rating = ratingForTmdb(tmdbId)
   return rating == null || rating >= minRatingX10
+}
+
+function rebuildActiveIndex() {
+  if (!titlesIndex) {
+    activeIndex = index
+    return
+  }
+  activeIndex = {
+    movies: index.movies.filter((m) => isTmdbAllowed(m.tmdbId)),
+  }
 }
 
 function hasVisibleSwapFx(): boolean {
@@ -202,6 +214,7 @@ function setMinRating(next: number) {
   if (clamped === minRatingX10) return
   minRatingX10 = clamped
   updateRatingUI()
+  rebuildActiveIndex()
   enforceMinRating()
 
   const q = searchInput.value.trim()
@@ -248,7 +261,7 @@ function enforceMinRating() {
       grid.cells.delete(cellKey)
       grid.onScreen.delete(existing.tmdbId)
 
-      const replacement = generateMovie(col, row, grid, index, isTmdbAllowed, fillCoherent)
+      const replacement = generateMovie(col, row, grid, activeIndex, allowAll, fillCoherent)
       if (replacement) {
         setCell(grid, col, row, replacement)
         if (
@@ -301,7 +314,7 @@ function scheduleIdleFill() {
     const range = getVisibleRange(vp, PRELOAD_BUFFER)
     let n = 0
     while (deadline.timeRemaining() > 1 && n < IDLE_FILL_MAX) {
-      if (fillRange(grid, range, index, isTmdbAllowed, false, 1) === 0) return
+      if (fillRange(grid, range, activeIndex, allowAll, false, 1) === 0) return
       n++
     }
     if (n > 0) {
@@ -355,12 +368,12 @@ function update() {
       const randomChance = 0.05 + t * 0.55   // 0.05 -> 0.6
 
       // Pass 1: fill entire render range (no budget - cells show as empty otherwise)
-      n = fillRange(grid, getVisibleRange(vp), index, isTmdbAllowed, false, undefined, noiseFactor, randomChance)
+      n = fillRange(grid, getVisibleRange(vp), activeIndex, allowAll, false, undefined, noiseFactor, randomChance)
       // Pass 2: budget-limited buffer cells for preloading
       // visible cells already exist from pass 1 -> skipped -> budget only for buffer
-      n += fillRange(grid, getVisibleRange(vp, GESTURE_BUFFER), index, isTmdbAllowed, false, GESTURE_FILL, noiseFactor, randomChance)
+      n += fillRange(grid, getVisibleRange(vp, GESTURE_BUFFER), activeIndex, allowAll, false, GESTURE_FILL, noiseFactor, randomChance)
     } else {
-      n = fillRange(grid, getVisibleRange(vp, PRELOAD_BUFFER), index, isTmdbAllowed, fillCoherent, FILL_PER_FRAME)
+      n = fillRange(grid, getVisibleRange(vp, PRELOAD_BUFFER), activeIndex, allowAll, fillCoherent, FILL_PER_FRAME)
     }
   }
 
@@ -656,7 +669,7 @@ function handleLongPress(col: number, row: number) {
   const savedImgs = old.get(seedKey)?.imgs
   const seedCell = isTmdbAllowed(cell.tmdbId)
     ? cell
-    : generateMovie(col, row, grid, index, isTmdbAllowed, true)
+    : generateMovie(col, row, grid, activeIndex, allowAll, true)
 
   // Clear and regenerate
   filterSwapFx.clear()
@@ -674,7 +687,7 @@ function handleLongPress(col: number, row: number) {
   clearTimeout(fillDebounceId)
 
   // Fill entire visible range NOW (no budget limit)
-  fillRange(grid, getVisibleRange(vp, PRELOAD_BUFFER), index, isTmdbAllowed, true)
+  fillRange(grid, getVisibleRange(vp, PRELOAD_BUFFER), activeIndex, allowAll, true)
 
   // Start seismic wave animation
   const range = getVisibleRange(vp)
@@ -698,6 +711,7 @@ async function init() {
   }
 
   index = await loadEmbeddings()
+  activeIndex = index
   const titlesLoaded = await loadTitles()
 
   if (!titlesLoaded) {
@@ -705,6 +719,7 @@ async function init() {
   } else {
     updateRatingUI()
   }
+  rebuildActiveIndex()
 
   focusOn(0, 0)
   setupGestures(canvas, vp, gs, scheduleRender, openMovieLink)
