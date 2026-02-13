@@ -15,6 +15,7 @@ export function generateMovie(
   row: number,
   grid: Grid,
   index: EmbeddingsIndex,
+  isAllowed: (tmdbId: number) => boolean,
   coherent = false,
   noiseFactor?: number,
   randomChance?: number,
@@ -36,7 +37,7 @@ export function generateMovie(
     lastGenStats.neighborCount = 0
     lastGenStats.noise = 0
     lastGenStats.diversityMode = false
-    return pickRandom(index, grid.onScreen)
+    return pickRandom(index, grid.onScreen, isAllowed)
   }
 
   // Diversity injection: use neighbor blend with high noise instead of pure random
@@ -104,21 +105,28 @@ export function generateMovie(
     target[j] = Math.max(0, Math.min(255, target[j]))
   }
 
-  const candidates = findTopK(index, target, TOP_K, grid.onScreen)
+  const candidates = findTopK(index, target, TOP_K, grid.onScreen, isAllowed)
   if (candidates.length === 0) return null
 
   // Weighted random pick: favor closer matches
   return movieEntryToCell(weightedPick(candidates))
 }
 
-function pickRandom(index: EmbeddingsIndex, exclude: Set<number>): MovieCell | null {
+function pickRandom(
+  index: EmbeddingsIndex,
+  exclude: Set<number>,
+  isAllowed: (tmdbId: number) => boolean,
+): MovieCell | null {
   for (let attempt = 0; attempt < 20; attempt++) {
     const entry = index.movies[Math.floor(Math.random() * index.movies.length)]
-    if (!exclude.has(entry.tmdbId)) return movieEntryToCell(entry)
+    if (!exclude.has(entry.tmdbId) && isAllowed(entry.tmdbId)) return movieEntryToCell(entry)
   }
-  // Fallback: just pick anything
-  const entry = index.movies[Math.floor(Math.random() * index.movies.length)]
-  return movieEntryToCell(entry)
+
+  for (let i = 0; i < index.movies.length; i++) {
+    const entry = index.movies[i]
+    if (!exclude.has(entry.tmdbId) && isAllowed(entry.tmdbId)) return movieEntryToCell(entry)
+  }
+  return null
 }
 
 function weightedPick(candidates: MovieEntry[]): MovieEntry {

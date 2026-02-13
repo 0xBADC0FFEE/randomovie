@@ -47,6 +47,7 @@ export function setCell(grid: Grid, col: number, row: number, cell: MovieCell) {
  *  when only one seed cell exists, so similarity propagates outward. */
 export function fillRange(
   grid: Grid, range: CellRange, index: EmbeddingsIndex,
+  isAllowed: (tmdbId: number) => boolean,
   coherent = false, maxNew = Infinity,
   noiseFactor?: number, randomChance?: number,
 ): number {
@@ -67,7 +68,7 @@ export function fillRange(
   for (const [col, row] of coords) {
     if (grid.cells.has(key(col, row))) continue
     if (generated >= maxNew) return generated
-    const cell = generateMovie(col, row, grid, index, coherent, noiseFactor, randomChance)
+    const cell = generateMovie(col, row, grid, index, isAllowed, coherent, noiseFactor, randomChance)
     if (cell) setCell(grid, col, row, cell)
     generated++
   }

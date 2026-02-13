@@ -1,15 +1,18 @@
 import { createViewport, centerOn, getVisibleRange, PRELOAD_BUFFER, CELL_W, CELL_H, screenToWorld } from './canvas/viewport.ts'
 import { createGestureState, setupGestures } from './canvas/gestures.ts'
 import { render, preloadPosters } from './canvas/renderer.ts'
+import type { FilterSwapFxEntry } from './canvas/renderer.ts'
 import { createGrid, fillRange, evictOutside, clearGrid, setCell } from './engine/grid.ts'
 import { generateMockIndex, parseEmbeddings } from './engine/embeddings.ts'
 import type { EmbeddingsIndex, MovieEntry } from './engine/embeddings.ts'
-import { setOnLoad, evictImages, clearAllImages, stash, restore } from './canvas/poster-loader.ts'
+import { setOnLoad, evictImages, clearAllImages, stash, restore, pickSize, load as loadPoster } from './canvas/poster-loader.ts'
 import { startWave, isWaveDone } from './canvas/wave.ts'
 import type { WaveState, OldCellData } from './canvas/wave.ts'
 import { createAnimation, animateViewport } from './canvas/animation.ts'
 import { createDebugOverlay, type DebugOverlay } from './debug/overlay.ts'
 import type { TitlesIndex } from './engine/titles.ts'
+import { generateMovie } from './engine/generator.ts'
+import { buildRatingMorphPath, clampRatingX10 } from './ui/rating-morph.ts'
 
 function getSafeAreaTop(): number {
   const el = document.createElement('div')
@@ -18,6 +21,19 @@ function getSafeAreaTop(): number {
   const h = el.getBoundingClientRect().height
   document.body.removeChild(el)
   return h
+}
+
+function key(col: number, row: number): string {
+  return `${col}:${row}`
+}
+
+function parseKey(cellKey: string): [number, number] {
+  const [cs, rs] = cellKey.split(':')
+  return [parseInt(cs), parseInt(rs)]
+}
+
+function formatRating(ratingX10: number): string {
+  return (ratingX10 / 10).toFixed(1)
 }
 
 let safeTop = 0
@@ -30,6 +46,16 @@ const IDLE_FILL_MAX = 16
 const SEARCH_DEBOUNCE = 150
 const FILL_DELAY = 300
 
+const RATING_MIN_X10 = 50
+const RATING_MAX_X10 = 80
+const RATING_STEP_X10 = 5
+const ICON_RATINGS_X10 = [50, 60, 65, 75, 80]
+const RATING_STRIP_PAD_X = 12
+const RATING_DRAG_THRESHOLD_PX = 8
+const FILTER_REPLACE_BATCH = 14
+const FILTER_SWAP_TIMEOUT = 500
+const HINT_DURATION_MS = 1200
+
 const rIC: typeof requestIdleCallback = window.requestIdleCallback
   ?? ((cb) => setTimeout(() => cb({
     timeRemaining: () => 1, didTimeout: false,
@@ -38,7 +64,11 @@ const cIC: typeof cancelIdleCallback = window.cancelIdleCallback ?? clearTimeout
 
 const canvas = document.getElementById('canvas') as HTMLCanvasElement
 const ctx = canvas.getContext('2d')!
+const searchPanel = document.getElementById('search-panel') as HTMLDivElement
 const searchInput = document.getElementById('search') as HTMLInputElement
+const ratingStrip = document.getElementById('rating-strip') as HTMLCanvasElement
+const searchHint = document.getElementById('search-hint') as HTMLDivElement
+const ratingCtx = ratingStrip.getContext('2d')!
 
 function resize() {
   const dpr = window.devicePixelRatio || 1
@@ -50,6 +80,7 @@ function resize() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   vp.width = w
   vp.height = h
+  drawRatingStrip()
 }
 
 function onVisualViewportChange() {
@@ -88,6 +119,193 @@ let activeWave: WaveState | null = null
 let debugOverlay: DebugOverlay | null =
   new URLSearchParams(location.search).has('debug') ? createDebugOverlay() : null
 
+let minRatingX10 = RATING_MIN_X10
+let ratingFilterSeq = 0
+let ratingReplaceRaf = 0
+let ratingReplaceQueue: string[] = []
+let hintTimer = 0
+let isDraggingFilter = false
+const filterSwapFx = new Map<string, FilterSwapFxEntry>()
+
+function clampMinRatingX10(v: number): number {
+  const clamped = Math.max(RATING_MIN_X10, Math.min(RATING_MAX_X10, clampRatingX10(v)))
+  return Math.round(clamped / RATING_STEP_X10) * RATING_STEP_X10
+}
+
+function ratingForTmdb(tmdbId: number): number | null {
+  if (!titlesIndex) return null
+  const idx = titlesIndex.idToIdx.get(tmdbId)
+  return idx === undefined ? null : titlesIndex.ratings[idx]
+}
+
+function isTmdbAllowed(tmdbId: number): boolean {
+  const rating = ratingForTmdb(tmdbId)
+  return rating == null || rating >= minRatingX10
+}
+
+function hasVisibleSwapFx(): boolean {
+  if (filterSwapFx.size === 0) return false
+  const range = getVisibleRange(vp)
+  for (const cellKey of filterSwapFx.keys()) {
+    const [col, row] = parseKey(cellKey)
+    if (
+      col >= range.minCol && col <= range.maxCol
+      && row >= range.minRow && row <= range.maxRow
+    ) return true
+  }
+  return false
+}
+
+function updateRatingUI() {
+  drawRatingStrip()
+}
+
+function showHint(text: string) {
+  searchHint.textContent = text
+  searchHint.classList.add('show')
+  clearTimeout(hintTimer)
+  hintTimer = window.setTimeout(() => {
+    searchHint.classList.remove('show')
+  }, HINT_DURATION_MS)
+}
+
+function drawRatingStrip() {
+  if (!ratingStrip || !ratingCtx || searchPanel.style.display === 'none') return
+
+  const dpr = window.devicePixelRatio || 1
+  const rect = ratingStrip.getBoundingClientRect()
+  const width = Math.max(1, Math.round(rect.width * dpr))
+  const height = Math.max(1, Math.round(rect.height * dpr))
+  if (ratingStrip.width !== width || ratingStrip.height !== height) {
+    ratingStrip.width = width
+    ratingStrip.height = height
+  }
+
+  ratingCtx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  ratingCtx.clearRect(0, 0, rect.width, rect.height)
+
+  const padX = RATING_STRIP_PAD_X
+  const y = rect.height * 0.52
+  const count = ICON_RATINGS_X10.length
+  const gap = count > 1 ? (rect.width - padX * 2) / (count - 1) : 0
+  const radius = Math.min(8, rect.height * 0.28)
+  const progress = (minRatingX10 - RATING_MIN_X10) / (RATING_MAX_X10 - RATING_MIN_X10)
+
+  for (let i = 0; i < ICON_RATINGS_X10.length; i++) {
+    const r = ICON_RATINGS_X10[i]
+    const x = padX + gap * i
+    const { points } = buildRatingMorphPath({ ratingX10: r, cx: x, cy: y, radius })
+
+    ratingCtx.beginPath()
+    for (let p = 0; p < points.length; p++) {
+      const pt = points[p]
+      if (p === 0) ratingCtx.moveTo(pt.x, pt.y)
+      else ratingCtx.lineTo(pt.x, pt.y)
+    }
+    ratingCtx.closePath()
+
+    const iconProgress = count <= 1 ? 1 : i / (count - 1)
+    if (iconProgress >= progress) {
+      ratingCtx.fillStyle = 'rgba(255, 243, 184, 0.95)'
+    } else {
+      ratingCtx.fillStyle = 'rgba(114, 128, 153, 0.45)'
+    }
+    ratingCtx.fill()
+  }
+}
+
+function setMinRating(next: number) {
+  const clamped = clampMinRatingX10(next)
+  if (clamped === minRatingX10) return
+  minRatingX10 = clamped
+  updateRatingUI()
+  enforceMinRating()
+
+  const q = searchInput.value.trim()
+  if (q) handleSearch(q)
+}
+
+function enforceMinRating() {
+  ratingFilterSeq++
+  const seq = ratingFilterSeq
+  ratingReplaceQueue = [...grid.cells.keys()]
+
+  const [cc, cr] = findCenterCell()
+  const centerKey = key(cc, cr)
+  const centerIdx = ratingReplaceQueue.indexOf(centerKey)
+  if (centerIdx > 0) {
+    ratingReplaceQueue.splice(centerIdx, 1)
+    ratingReplaceQueue.unshift(centerKey)
+  }
+
+  if (ratingReplaceRaf) {
+    cancelAnimationFrame(ratingReplaceRaf)
+    ratingReplaceRaf = 0
+  }
+
+  const runBatch = () => {
+    if (seq !== ratingFilterSeq) return
+
+    const now = performance.now()
+    const visible = getVisibleRange(vp)
+    const targetSize = pickSize(vp.scale, window.devicePixelRatio || 1)
+    let changed = 0
+    let processed = 0
+    while (processed < FILTER_REPLACE_BATCH && ratingReplaceQueue.length > 0) {
+      const cellKey = ratingReplaceQueue.shift()!
+      processed++
+
+      const existing = grid.cells.get(cellKey)
+      if (!existing || isTmdbAllowed(existing.tmdbId)) continue
+
+      const oldImgs = stash(cellKey)
+      evictImages([cellKey])
+
+      const [col, row] = parseKey(cellKey)
+      grid.cells.delete(cellKey)
+      grid.onScreen.delete(existing.tmdbId)
+
+      const replacement = generateMovie(col, row, grid, index, isTmdbAllowed, fillCoherent)
+      if (replacement) {
+        setCell(grid, col, row, replacement)
+        if (
+          col >= visible.minCol && col <= visible.maxCol
+          && row >= visible.minRow && row <= visible.maxRow
+        ) {
+          filterSwapFx.set(cellKey, {
+            oldCell: existing,
+            oldImgs,
+            createdAt: now,
+            startAt: 0,
+            timeoutMs: FILTER_SWAP_TIMEOUT,
+          })
+          loadPoster(cellKey, replacement.posterPath, targetSize)
+        } else {
+          filterSwapFx.delete(cellKey)
+        }
+        changed++
+      } else {
+        filterSwapFx.delete(cellKey)
+      }
+    }
+
+    if (changed > 0) {
+      activeWave = null
+      scheduleRepaint()
+      preloadPosters(vp, grid)
+    }
+
+    if (ratingReplaceQueue.length > 0) {
+      ratingReplaceRaf = requestAnimationFrame(runBatch)
+    } else {
+      ratingReplaceRaf = 0
+      scheduleRender()
+    }
+  }
+
+  ratingReplaceRaf = requestAnimationFrame(runBatch)
+}
+
 function cancelIdleFill() {
   if (idleId) { cIC(idleId); idleId = 0 }
 }
@@ -100,7 +318,7 @@ function scheduleIdleFill() {
     const range = getVisibleRange(vp, PRELOAD_BUFFER)
     let n = 0
     while (deadline.timeRemaining() > 1 && n < IDLE_FILL_MAX) {
-      if (fillRange(grid, range, index, false, 1) === 0) return
+      if (fillRange(grid, range, index, isTmdbAllowed, false, 1) === 0) return
       n++
     }
     if (n > 0) {
@@ -117,7 +335,7 @@ function scheduleRepaint() {
   repaintScheduled = true
   requestAnimationFrame(() => {
     repaintScheduled = false
-    render(ctx, vp, grid, titlesIndex, activeWave)
+    render(ctx, vp, grid, titlesIndex, activeWave, filterSwapFx)
   })
 }
 
@@ -150,20 +368,20 @@ function update() {
     if (gs.active) {
       const speed = Math.sqrt(gs.velocityX ** 2 + gs.velocityY ** 2)
       const t = Math.min(speed / 25, 1)
-      const noiseFactor = 0.08 + t * 0.72    // 0.08 → 0.8
-      const randomChance = 0.05 + t * 0.55   // 0.05 → 0.6
+      const noiseFactor = 0.08 + t * 0.72    // 0.08 -> 0.8
+      const randomChance = 0.05 + t * 0.55   // 0.05 -> 0.6
 
-      // Pass 1: fill entire render range (no budget — cells show as empty otherwise)
-      n = fillRange(grid, getVisibleRange(vp), index, false, undefined, noiseFactor, randomChance)
+      // Pass 1: fill entire render range (no budget - cells show as empty otherwise)
+      n = fillRange(grid, getVisibleRange(vp), index, isTmdbAllowed, false, undefined, noiseFactor, randomChance)
       // Pass 2: budget-limited buffer cells for preloading
-      // visible cells already exist from pass 1 → skipped → budget only for buffer
-      n += fillRange(grid, getVisibleRange(vp, GESTURE_BUFFER), index, false, GESTURE_FILL, noiseFactor, randomChance)
+      // visible cells already exist from pass 1 -> skipped -> budget only for buffer
+      n += fillRange(grid, getVisibleRange(vp, GESTURE_BUFFER), index, isTmdbAllowed, false, GESTURE_FILL, noiseFactor, randomChance)
     } else {
-      n = fillRange(grid, getVisibleRange(vp, PRELOAD_BUFFER), index, fillCoherent, FILL_PER_FRAME)
+      n = fillRange(grid, getVisibleRange(vp, PRELOAD_BUFFER), index, isTmdbAllowed, fillCoherent, FILL_PER_FRAME)
     }
   }
 
-  render(ctx, vp, grid, titlesIndex, activeWave)
+  render(ctx, vp, grid, titlesIndex, activeWave, filterSwapFx)
 
   if (activeWave) {
     if (isWaveDone(activeWave, performance.now())) {
@@ -172,9 +390,13 @@ function update() {
       scheduleRender()
     }
   }
+  if (hasVisibleSwapFx()) scheduleRender()
 
   if (n > 0) scheduleRender()
-  evictOutside(grid, getVisibleRange(vp, EVICT_BUFFER), evictImages)
+  evictOutside(grid, getVisibleRange(vp, EVICT_BUFFER), (keys) => {
+    evictImages(keys)
+    for (const k of keys) filterSwapFx.delete(k)
+  })
   preloadPosters(vp, grid)
   scheduleIdleFill()
   debugOverlay?.update(vp, gs, grid)
@@ -188,12 +410,15 @@ function findCenterCell(): [number, number] {
 
 function focusOn(col: number, row: number, seed?: MovieEntry, delay = 0, center = true) {
   activeWave = null
+  filterSwapFx.clear()
   clearGrid(grid, clearAllImages)
-  if (seed) {
+
+  const validSeed = seed && isTmdbAllowed(seed.tmdbId) ? seed : undefined
+  if (validSeed) {
     setCell(grid, col, row, {
-      tmdbId: seed.tmdbId,
-      posterPath: seed.posterPath,
-      embedding: seed.embedding,
+      tmdbId: validSeed.tmdbId,
+      posterPath: validSeed.posterPath,
+      embedding: validSeed.embedding,
     })
     fillCoherent = true
   } else {
@@ -213,17 +438,17 @@ function focusOn(col: number, row: number, seed?: MovieEntry, delay = 0, center 
   scheduleRender()
 }
 
-/** Center+fit one card in visible area above search input */
+/** Center+fit one card in visible area above search panel */
 function centerCardForSearch(col: number, row: number, viewTop: number, viewH: number, animate = true) {
-  const inputH = 60
+  const panelH = Math.max(60, searchPanel.getBoundingClientRect().height)
   const pad = 24
-  const availH = viewH - safeTop - inputH - pad * 2
+  const availH = viewH - safeTop - panelH - pad * 2
   const availW = vp.width - pad * 2
   const scaleH = availH / CELL_H
   const scaleW = availW / CELL_W
   const targetScale = Math.min(scaleH, scaleW)
 
-  const centerY = viewTop + (viewH - inputH + safeTop) / 2
+  const centerY = viewTop + (viewH - panelH + safeTop) / 2
   const targetOffsetX = vp.width / 2 - (col + 0.5) * CELL_W * targetScale
   const targetOffsetY = centerY - (row + 0.5) * CELL_H * targetScale
 
@@ -242,6 +467,7 @@ function enterSearchMode() {
   if (searchMode) return
   searchMode = true
   gs.disabled = true
+  searchPanel.classList.add('active')
 
   searchCell = findCenterCell()
   centerCardForSearch(searchCell[0], searchCell[1], 0, vp.height)
@@ -250,18 +476,22 @@ function enterSearchMode() {
 /** Exit search mode */
 function exitSearchMode() {
   if (!searchMode) return
+  if (isDraggingFilter) return
+
   searchMode = false
   gs.disabled = false
   fillCoherent = false
+  searchPanel.classList.remove('active')
   searchInput.blur()
   searchInput.value = ''
+  searchHint.classList.remove('show')
   scheduleRender()
 }
 
 /** Handle search input: post query to worker */
 function handleSearch(query: string) {
   if (!searchReady || !query.trim()) return
-  searchWorker.postMessage({ type: 'search', seq: ++searchSeq, query: query.trim() })
+  searchWorker.postMessage({ type: 'search', seq: ++searchSeq, query: query.trim(), minRatingX10 })
 }
 
 /** Handle worker responses */
@@ -274,7 +504,10 @@ function handleWorkerMessage(e: MessageEvent) {
   if (type === 'result') {
     if (e.data.seq !== searchSeq) return // stale
     const tmdbId = e.data.tmdbId as number | null
-    if (tmdbId == null) return
+    if (tmdbId == null) {
+      showHint(`No matches for >= ${formatRating(minRatingX10)}`)
+      return
+    }
 
     const entry = index.movies.find(m => m.tmdbId === tmdbId)
     if (!entry) return
@@ -342,10 +575,78 @@ function setupSearch() {
 
   searchInput.addEventListener('input', () => {
     clearTimeout(searchDebounceId)
+    searchHint.classList.remove('show')
     searchDebounceId = window.setTimeout(() => {
       handleSearch(searchInput.value)
     }, SEARCH_DEBOUNCE)
   })
+}
+
+function setupRatingFilter() {
+  let pointerId = -1
+  let dragStartX = 0
+  let dragStartY = 0
+  let dragging = false
+  let prevGsDisabled = false
+
+  function ratingFromClientX(clientX: number): number {
+    const rect = ratingStrip.getBoundingClientRect()
+    if (rect.width <= 0) return minRatingX10
+    const left = rect.left + RATING_STRIP_PAD_X
+    const right = rect.right - RATING_STRIP_PAD_X
+    const x = Math.max(left, Math.min(right, clientX))
+    const t = (x - left) / Math.max(1, right - left)
+    return RATING_MIN_X10 + t * (RATING_MAX_X10 - RATING_MIN_X10)
+  }
+
+  searchPanel.addEventListener('pointerdown', (e) => {
+    const target = e.target as Element | null
+    if (!target?.closest('#rating-filter')) return
+    if (e.button !== 0 || pointerId !== -1) return
+    pointerId = e.pointerId
+    dragStartX = e.clientX
+    dragStartY = e.clientY
+    dragging = false
+    searchPanel.setPointerCapture(pointerId)
+  })
+
+  searchPanel.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== pointerId) return
+
+    const dx = e.clientX - dragStartX
+    const dy = e.clientY - dragStartY
+
+    if (!dragging) {
+      if (Math.abs(dx) <= RATING_DRAG_THRESHOLD_PX || Math.abs(dx) <= Math.abs(dy)) return
+      dragging = true
+      isDraggingFilter = true
+      searchPanel.classList.add('dragging')
+      searchInput.readOnly = true
+      searchInput.blur()
+      prevGsDisabled = gs.disabled
+      gs.disabled = true
+      setMinRating(ratingFromClientX(e.clientX))
+    }
+
+    e.preventDefault()
+    setMinRating(ratingFromClientX(e.clientX))
+  })
+
+  function finishDrag(e: PointerEvent) {
+    if (e.pointerId !== pointerId) return
+    if (searchPanel.hasPointerCapture(pointerId)) searchPanel.releasePointerCapture(pointerId)
+    pointerId = -1
+    if (!dragging) return
+
+    dragging = false
+    isDraggingFilter = false
+    searchPanel.classList.remove('dragging')
+    searchInput.readOnly = false
+    gs.disabled = prevGsDisabled
+  }
+
+  searchPanel.addEventListener('pointerup', finishDrag)
+  searchPanel.addEventListener('pointercancel', finishDrag)
 }
 
 function openMovieLink(sx: number, sy: number) {
@@ -371,27 +672,33 @@ function handleLongPress(col: number, row: number) {
 
   // Stash ALL old cells + images before clearing
   const old = new Map<string, OldCellData>()
-  for (const [key, c] of grid.cells) {
-    old.set(key, { cell: c, imgs: stash(key) })
+  for (const [cellKey, c] of grid.cells) {
+    old.set(cellKey, { cell: c, imgs: stash(cellKey) })
   }
 
   const seedKey = `${col}:${row}`
   const savedImgs = old.get(seedKey)?.imgs
+  const seedCell = isTmdbAllowed(cell.tmdbId)
+    ? cell
+    : generateMovie(col, row, grid, index, isTmdbAllowed, true)
 
   // Clear and regenerate
+  filterSwapFx.clear()
   clearGrid(grid, clearAllImages)
-  setCell(grid, col, row, {
-    tmdbId: cell.tmdbId,
-    posterPath: cell.posterPath,
-    embedding: cell.embedding,
-  })
-  if (savedImgs) restore(seedKey, savedImgs)
+  if (seedCell) {
+    setCell(grid, col, row, {
+      tmdbId: seedCell.tmdbId,
+      posterPath: seedCell.posterPath,
+      embedding: seedCell.embedding,
+    })
+    if (savedImgs && seedCell.tmdbId === cell.tmdbId) restore(seedKey, savedImgs)
+  }
   fillCoherent = true
   fillPending = false
   clearTimeout(fillDebounceId)
 
   // Fill entire visible range NOW (no budget limit)
-  fillRange(grid, getVisibleRange(vp, PRELOAD_BUFFER), index, true)
+  fillRange(grid, getVisibleRange(vp, PRELOAD_BUFFER), index, isTmdbAllowed, true)
 
   // Start seismic wave animation
   const range = getVisibleRange(vp)
@@ -417,13 +724,15 @@ async function init() {
   const titlesLoaded = await loadTitles()
 
   if (!titlesLoaded) {
-    searchInput.style.display = 'none'
+    searchPanel.style.display = 'none'
+  } else {
+    updateRatingUI()
   }
 
   focusOn(0, 0)
   setupGestures(canvas, vp, gs, scheduleRender, openMovieLink)
 
-  // Long-press (500ms) → refresh grid around pressed card
+  // Long-press (500ms) -> refresh grid around pressed card
   lpTimer = 0
   lpInterval = 0
   let lpStartX = 0
@@ -496,6 +805,7 @@ async function init() {
   })
 
   setupSearch()
+  setupRatingFilter()
   scheduleRender()
 }
 

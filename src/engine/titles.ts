@@ -50,7 +50,7 @@ export function parseTitles(buffer: ArrayBuffer): TitlesIndex {
 }
 
 /** Find best match: word-level substring first, then word-level fuzzy. Returns tmdbId or null. */
-export function searchBest(idx: TitlesIndex, query: string): number | null {
+export function searchBest(idx: TitlesIndex, query: string, minRatingX10 = 50): number | null {
   if (!query) return null
   const qWords = query.toLowerCase().split(/\s+/).filter(Boolean)
   if (!qWords.length) return null
@@ -58,6 +58,7 @@ export function searchBest(idx: TitlesIndex, query: string): number | null {
   // Phase 1: word-level substring — all query words must appear as substrings of title
   let bestSub: { i: number; len: number } | null = null
   for (let i = 0; i < idx.titles.length; i++) {
+    if (idx.ratings[i] < minRatingX10) continue
     const t = idx.titles[i].toLowerCase()
     let allMatch = true
     for (const w of qWords) {
@@ -74,6 +75,7 @@ export function searchBest(idx: TitlesIndex, query: string): number | null {
   let bestLen = Infinity
   let bestIdx = -1
   for (let i = 0; i < idx.titles.length; i++) {
+    if (idx.ratings[i] < minRatingX10) continue
     const tWords = idx.titles[i].toLowerCase().split(/\s+/)
     let score = 0
     for (const qw of qWords) {

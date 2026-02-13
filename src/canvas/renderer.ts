@@ -1,10 +1,13 @@
 import type { Viewport } from './viewport.ts'
 import { CELL_W, CELL_H, PRELOAD_BUFFER, getVisibleRange, worldToScreen } from './viewport.ts'
-import type { Grid } from '../engine/grid.ts'
+import type { Grid, MovieCell } from '../engine/grid.ts'
 import type { TitlesIndex } from '../engine/titles.ts'
 import * as Posters from './poster-loader.ts'
 import type { WaveState } from './wave.ts'
-import { updateWave, cellBump } from './wave.ts'
+import { updateWave, cellBump, computeBumpPhase, BUMP_UP_MIN } from './wave.ts'
+import { buildRatingMorphPath } from '../ui/rating-morph.ts'
+
+const FILTER_SWAP_TIMEOUT = 500
 
 function drawRating(
   ctx: CanvasRenderingContext2D,
@@ -15,37 +18,40 @@ function drawRating(
 ) {
   const r = rating ?? -1
   const has = r >= 0
-  const t = has ? Math.min(1, Math.max(0, (r - 50) / 30)) : 0
   const s = w / CELL_W
   const cx = sx + w * 0.85
   const cy = sy + h * 0.85
-  const TAU = Math.PI * 2
   const R = 7 * s
 
   ctx.globalCompositeOperation = 'difference'
   ctx.fillStyle = '#fff'
   ctx.globalAlpha = (has ? 0.4 : 0.08) * baseAlpha
 
-  const numPts = t < 0.5 ? 32 : t < 0.8 ? 4 : 5
-  const starness = Math.min(1, t * 1.5)
-  const innerR = R * (1 - starness * 0.55)
-
+  const { points } = buildRatingMorphPath({
+    ratingX10: has ? r : 50,
+    cx,
+    cy,
+    radius: R,
+  })
   ctx.beginPath()
-  if (numPts >= 32) {
-    ctx.arc(cx, cy, R * (0.4 + t * 0.6), 0, TAU)
-  } else {
-    for (let i = 0; i < numPts * 2; i++) {
-      const a = (i * Math.PI) / numPts - Math.PI / 2
-      const rd = i % 2 === 0 ? R : innerR
-      if (i === 0) ctx.moveTo(cx + Math.cos(a) * rd, cy + Math.sin(a) * rd)
-      else ctx.lineTo(cx + Math.cos(a) * rd, cy + Math.sin(a) * rd)
-    }
-    ctx.closePath()
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i]
+    if (i === 0) ctx.moveTo(p.x, p.y)
+    else ctx.lineTo(p.x, p.y)
   }
+  ctx.closePath()
   ctx.fill()
 
   ctx.globalCompositeOperation = 'source-over'
   ctx.globalAlpha = baseAlpha
+}
+
+export interface FilterSwapFxEntry {
+  oldCell: MovieCell
+  oldImgs: Map<Posters.TmdbSize, HTMLImageElement> | undefined
+  createdAt: number
+  startAt: number
+  timeoutMs?: number
 }
 
 export function render(
@@ -54,6 +60,7 @@ export function render(
   grid: Grid,
   titlesIndex?: TitlesIndex | null,
   wave?: WaveState | null,
+  swapFx?: Map<string, FilterSwapFxEntry>,
 ) {
   ctx.clearRect(0, 0, vp.width, vp.height)
 
@@ -64,7 +71,7 @@ export function render(
   const dpr = window.devicePixelRatio || 1
   const size = Posters.pickSize(vp.scale, dpr)
 
-  const now = wave ? performance.now() : 0
+  const now = performance.now()
   if (wave) updateWave(wave, now, grid, size)
 
   const toLoad: { col: number; row: number; cellKey: string; posterPath: string }[] = []
@@ -90,10 +97,39 @@ export function render(
       // Wave: determine bump scale + which poster to show
       let scale = 1
       let useOld = false
+      let waveOldData: { cell: MovieCell; imgs: Map<Posters.TmdbSize, HTMLImageElement> | undefined } | undefined
       if (wave) {
         const b = cellBump(wave, col, row, now)
         scale = b.scale
         useOld = b.useOld
+        if (useOld) waveOldData = wave.old.get(cellKey)
+      }
+
+      // Local filter-swap effect (same bump curve as long-tap), unless wave already controls this cell.
+      let swapEntry: FilterSwapFxEntry | undefined
+      let swapUseOld = false
+      if (swapFx && !(useOld || scale !== 1)) {
+        swapEntry = swapFx.get(cellKey)
+        if (swapEntry) {
+          const timeoutMs = swapEntry.timeoutMs ?? FILTER_SWAP_TIMEOUT
+          const newReady = !!Posters.getBestAvailable(cellKey, size)
+          if (swapEntry.startAt === 0 && (newReady || now - swapEntry.createdAt >= timeoutMs)) {
+            swapEntry.startAt = now
+          }
+          if (swapEntry.startAt === 0) {
+            swapUseOld = true
+          } else {
+            const phase = computeBumpPhase(now - swapEntry.startAt, BUMP_UP_MIN)
+            scale = phase.scale
+            swapUseOld = phase.useOld
+            if (phase.done) {
+              swapFx.delete(cellKey)
+              swapEntry = undefined
+              swapUseOld = false
+              scale = 1
+            }
+          }
+        }
       }
 
       // Always queue new poster for loading (ringReady needs them)
@@ -103,19 +139,23 @@ export function render(
 
       // Pick image source: old (stashed) or new (grid)
       let img: HTMLImageElement | undefined
-      let placeholderHue: number
+      let placeholderHue: number = (cell.embedding[0] / 255) * 360
+      let drawCell: MovieCell = cell
       if (useOld && wave) {
-        const oldData = wave.old.get(cellKey)
+        const oldData = waveOldData ?? wave.old.get(cellKey)
         if (oldData) {
           img = findBestStashed(oldData.imgs, size)
           placeholderHue = (oldData.cell.embedding[0] / 255) * 360
+          drawCell = oldData.cell
         } else {
           img = Posters.getBestAvailable(cellKey, size)
-          placeholderHue = (cell.embedding[0] / 255) * 360
         }
+      } else if (swapUseOld && swapEntry) {
+        img = findBestStashed(swapEntry.oldImgs, size)
+        placeholderHue = (swapEntry.oldCell.embedding[0] / 255) * 360
+        drawCell = swapEntry.oldCell
       } else {
         img = Posters.getBestAvailable(cellKey, size)
-        placeholderHue = (cell.embedding[0] / 255) * 360
       }
 
       // Apply scale transform (from cell center)
@@ -138,7 +178,6 @@ export function render(
 
       // Rating overlay
       if (titlesIndex) {
-        const drawCell = useOld && wave ? wave.old.get(cellKey)?.cell ?? cell : cell
         const idx = titlesIndex.idToIdx.get(drawCell.tmdbId)
         const rating = idx !== undefined ? titlesIndex.ratings[idx] : undefined
         drawRating(ctx, rating, sx, sy, cellScreenW, cellScreenH)

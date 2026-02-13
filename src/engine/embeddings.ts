@@ -47,6 +47,7 @@ export function findTopK(
   target: Float32Array,
   k: number,
   exclude: Set<number>,
+  isAllowed?: (tmdbId: number) => boolean,
 ): MovieEntry[] {
   const topMovies: (MovieEntry | null)[] = new Array(k).fill(null)
   const topDist: Float64Array = new Float64Array(k).fill(Infinity)
@@ -55,6 +56,7 @@ export function findTopK(
 
   for (const movie of index.movies) {
     if (exclude.has(movie.tmdbId)) continue
+    if (isAllowed && !isAllowed(movie.tmdbId)) continue
     let d = 0
     for (let j = 0; j < EMBED_DIM; j++) {
       const diff = target[j] - movie.embedding[j]

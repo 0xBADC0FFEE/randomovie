@@ -11,7 +11,7 @@ self.onmessage = (e: MessageEvent) => {
     self.postMessage({ type: 'ready' })
   } else if (type === 'search') {
     if (!idx) return
-    const tmdbId = searchBest(idx, e.data.query as string)
+    const tmdbId = searchBest(idx, e.data.query as string, e.data.minRatingX10 as number)
     self.postMessage({ type: 'result', seq: e.data.seq, tmdbId })
   }
 }

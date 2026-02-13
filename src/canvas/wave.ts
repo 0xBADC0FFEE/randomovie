@@ -10,9 +10,10 @@ function easeOutBack(x: number): number {
 }
 
 const RING_STAGGER = 80   // ms between ring bumps
-const BUMP_UP_MIN = 100    // ms ring 1 rise — snappy
-const BUMP_UP_MAX = 160    // ms outermost ring rise — gentle
-const BUMP_DOWN = 200      // ms scale peak→1
+export const BUMP_UP_MIN = 100   // ms ring 1 rise — snappy
+const BUMP_UP_MAX = 160           // ms outermost ring rise — gentle
+export const BUMP_DOWN = 200      // ms scale peak→1
+export const BUMP_MIN_SCALE = 0.75
 const WAVE_TIMEOUT = 500   // ms max wait for image preloads
 
 export interface OldCellData {
@@ -85,20 +86,34 @@ export function cellBump(
   if (t === 0) return { scale: 1, useOld: true }  // not started yet, show old
   const riseMs = BUMP_UP_MIN + (BUMP_UP_MAX - BUMP_UP_MIN) * ((ring - 1) / (wave.maxRing - 1))
   const elapsed = now - t
-  // Phase 1 — shrink old poster (1→0.75)
-  if (elapsed < riseMs) {
-    return { scale: 1 - 0.25 * easeOutCubic(elapsed / riseMs), useOld: true }
-  }
-  // Phase 2 — grow new poster (0.75→1)
-  const downElapsed = elapsed - riseMs
-  if (downElapsed < BUMP_DOWN) {
-    return { scale: 0.75 + 0.25 * easeOutBack(downElapsed / BUMP_DOWN), useOld: false }
-  }
-  // Done
-  return { scale: 1, useOld: false }
+  const phase = computeBumpPhase(elapsed, riseMs)
+  return { scale: phase.scale, useOld: phase.useOld }
 }
 
 export function isWaveDone(wave: WaveState, now: number): boolean {
   const t = wave.ringStartTime[wave.maxRing]
   return t > 0 && now >= t + BUMP_UP_MAX + BUMP_DOWN
+}
+
+export function computeBumpPhase(
+  elapsed: number,
+  riseMs: number,
+  downMs = BUMP_DOWN,
+): { scale: number; useOld: boolean; done: boolean } {
+  if (elapsed < riseMs) {
+    return {
+      scale: 1 - (1 - BUMP_MIN_SCALE) * easeOutCubic(elapsed / riseMs),
+      useOld: true,
+      done: false,
+    }
+  }
+  const downElapsed = elapsed - riseMs
+  if (downElapsed < downMs) {
+    return {
+      scale: BUMP_MIN_SCALE + (1 - BUMP_MIN_SCALE) * easeOutBack(downElapsed / downMs),
+      useOld: false,
+      done: false,
+    }
+  }
+  return { scale: 1, useOld: false, done: true }
 }
