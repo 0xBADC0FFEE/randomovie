@@ -1,21 +1,14 @@
 """
-Data pipeline: Kaggle TMDB dataset → Ollama embeddings → UMAP → binary output.
+Data pipeline: Kaggle TMDB dataset -> embeddings -> UMAP -> binary output.
 
-Steps:
-1. Download dataset from Kaggle (alanvourch/tmdb-movies-daily-updates)
-2. Filter: has poster, >100 votes, rating >5.0, has text
-3. Generate 768-dim embeddings via Ollama (nomic-embed-text-v2-moe)
-4. Cache embeddings in scripts/embedding_cache.npz
-5. UMAP: 768-dim → 16-dim
-6. Quantize: float32 → uint8 (min-max per axis)
-7. Output: embeddings.bin + metadata.bin
-
-Usage:
-    pip install kagglehub pandas numpy umap-learn requests
-    ollama pull nomic-embed-text-v2-moe
-    python scripts/pipeline.py
+Outputs:
+  public/data/embeddings.bin
+  public/data/metadata.bin
 """
 
+import argparse
+import datetime as dt
+import hashlib
 import struct
 import sys
 from pathlib import Path
@@ -24,33 +17,71 @@ import numpy as np
 import requests
 
 OLLAMA_URL = "http://localhost:11434"
-EMBED_MODEL = "nomic-embed-text-v2-moe"
-EMBED_DIM = 768
+OLLAMA_MODEL = "nomic-embed-text-v2-moe"
 BATCH_SIZE = 64
 CACHE_PATH = Path(__file__).parent / "embedding_cache.npz"
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Build Vibefind data binaries")
+    parser.add_argument("--ci", action="store_true", help="Fail fast, less noisy output")
+    parser.add_argument(
+        "--embed-backend",
+        choices=["ollama", "sentence-transformers"],
+        default="ollama",
+        help="Embedding backend",
+    )
+    parser.add_argument(
+        "--sentence-model",
+        default="sentence-transformers/all-MiniLM-L6-v2",
+        help="SentenceTransformer model when --embed-backend sentence-transformers",
+    )
+    parser.add_argument("--cache-prune", action="store_true", help="Remove stale cache ids")
+    parser.add_argument("--force-full-recompute", action="store_true", help="Ignore cached embeddings")
+    parser.add_argument(
+        "--full-recompute-every-weeks",
+        type=int,
+        default=0,
+        help="Force full recompute every N ISO weeks (0 disables)",
+    )
+    return parser.parse_args()
+
+
+def should_force_full_recompute(every_weeks: int) -> bool:
+    if every_weeks <= 0:
+        return False
+    iso_week = dt.datetime.now(dt.timezone.utc).isocalendar().week
+    return iso_week % every_weeks == 0
+
+
+def compute_cache_scope(args) -> str:
+    if args.embed_backend == "ollama":
+        return f"ollama:{OLLAMA_MODEL}"
+    return f"sentence-transformers:{args.sentence_model}"
+
+
+def hash_text(text: str, cache_scope: str) -> str:
+    # Scope in hash prevents accidental reuse across backend/model changes.
+    return hashlib.sha256(f"{cache_scope}\n{text}".encode("utf-8")).hexdigest()
+
+
 def check_ollama():
-    """Verify Ollama is running and model is available. Fail fast."""
     try:
         r = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
         r.raise_for_status()
     except (requests.ConnectionError, requests.Timeout):
-        print("ERROR: Ollama not running. Start it with: ollama serve")
+        print("ERROR: Ollama not running. Start with: ollama serve")
         sys.exit(1)
 
     models = [m["name"] for m in r.json().get("models", [])]
-    # Match with or without :latest tag
-    if not any(EMBED_MODEL in m for m in models):
-        print(f"ERROR: Model '{EMBED_MODEL}' not found. Pull it with:")
-        print(f"  ollama pull {EMBED_MODEL}")
+    if not any(OLLAMA_MODEL in m for m in models):
+        print(f"ERROR: Model '{OLLAMA_MODEL}' not found. Pull with: ollama pull {OLLAMA_MODEL}")
         sys.exit(1)
 
-    print(f"Ollama OK — model '{EMBED_MODEL}' available")
+    print(f"Ollama OK - model '{OLLAMA_MODEL}' available")
 
 
 def load_dataset():
-    """Download and load dataset from Kaggle."""
     import kagglehub
     import pandas as pd
 
@@ -68,8 +99,7 @@ def load_dataset():
     return df
 
 
-def filter_movies(df):
-    """Keep movies with poster, enough votes, decent rating, and text for embedding."""
+def filter_movies(df, cache_scope: str):
     print("Filtering movies...")
     filtered = []
     for _, row in df.iterrows():
@@ -92,7 +122,6 @@ def filter_movies(df):
         if not title:
             continue
 
-        # Build text for embedding
         tagline = str(row.get("tagline") or "").strip()
         overview = str(row.get("overview") or "").strip()
         tto = row.get("title_tagline_overview")
@@ -109,7 +138,6 @@ def filter_movies(df):
         if tmdb_id <= 0:
             continue
 
-        # IMDB ID: strip "tt" prefix, store as int (0 = missing)
         imdb_raw = str(row.get("imdb_id") or "").strip()
         imdb_num = 0
         if imdb_raw.startswith("tt"):
@@ -125,6 +153,7 @@ def filter_movies(df):
             "title": title,
             "poster_path": poster,
             "text": text,
+            "cache_hash": hash_text(text, cache_scope),
             "imdb_num": imdb_num,
             "rating_x10": rating_x10,
         })
@@ -133,59 +162,154 @@ def filter_movies(df):
     return filtered
 
 
-def load_embedding_cache():
-    """Load cached embeddings from disk. Returns dict of tmdb_id → embedding."""
+def load_embedding_cache(cache_scope: str):
     if not CACHE_PATH.exists():
         return {}
+
     print(f"Loading embedding cache from {CACHE_PATH.name}...")
-    data = np.load(CACHE_PATH)
-    cache = {int(k): data[k] for k in data.files}
+    data = np.load(CACHE_PATH, allow_pickle=False)
+
+    scope = ""
+    if "__scope" in data.files:
+        scope_arr = data["__scope"]
+        if scope_arr.size > 0:
+            scope = str(scope_arr[0])
+
+    if scope and scope != cache_scope:
+        print(f"  Cache scope mismatch ({scope} != {cache_scope}), ignoring old cache")
+        return {}
+
+    cache = {}
+    if {"__ids", "__hashes", "__embeddings"}.issubset(set(data.files)):
+        ids = data["__ids"]
+        hashes = data["__hashes"]
+        embeddings = data["__embeddings"]
+        for i in range(len(ids)):
+            cache[int(ids[i])] = (str(hashes[i]), embeddings[i])
+    else:
+        # Backward compatibility: old format stored tmdb ids as keys, no hashes.
+        for k in data.files:
+            if not k.isdigit():
+                continue
+            cache[int(k)] = ("", data[k])
+
     print(f"  {len(cache)} cached embeddings")
     return cache
 
 
-def save_embedding_cache(cache):
-    """Save embedding cache to disk."""
+def save_embedding_cache(cache_scope: str, cache):
     print(f"Saving embedding cache ({len(cache)} entries)...")
-    np.savez_compressed(CACHE_PATH, **{str(k): v for k, v in cache.items()})
+    if not cache:
+        np.savez_compressed(
+            CACHE_PATH,
+            __scope=np.array([cache_scope], dtype="<U256"),
+            __ids=np.array([], dtype=np.uint32),
+            __hashes=np.array([], dtype="<U64"),
+            __embeddings=np.empty((0, 0), dtype=np.float32),
+        )
+        return
+
+    ids_sorted = sorted(cache.keys())
+    hashes = [cache[i][0] for i in ids_sorted]
+    embeddings = np.stack([cache[i][1] for i in ids_sorted]).astype(np.float32)
+
+    np.savez_compressed(
+        CACHE_PATH,
+        __scope=np.array([cache_scope], dtype="<U256"),
+        __ids=np.array(ids_sorted, dtype=np.uint32),
+        __hashes=np.array(hashes, dtype="<U64"),
+        __embeddings=embeddings,
+    )
 
 
-def generate_embeddings(movies, cache):
-    """Generate embeddings via Ollama for movies not in cache."""
-    # Split into cached and uncached
-    to_embed = [m for m in movies if m["tmdb_id"] not in cache]
-    print(f"Embeddings: {len(movies) - len(to_embed)} cached, {len(to_embed)} to generate")
-
-    if not to_embed:
-        return cache
-
-    for i in range(0, len(to_embed), BATCH_SIZE):
-        batch = to_embed[i:i + BATCH_SIZE]
+def generate_with_ollama(movies):
+    all_embeddings = []
+    for i in range(0, len(movies), BATCH_SIZE):
+        batch = movies[i:i + BATCH_SIZE]
         texts = [f"search_document: {m['text']}" for m in batch]
 
         r = requests.post(
             f"{OLLAMA_URL}/api/embed",
-            json={"model": EMBED_MODEL, "input": texts},
+            json={"model": OLLAMA_MODEL, "input": texts},
             timeout=300,
         )
         r.raise_for_status()
         embeddings = r.json()["embeddings"]
+        all_embeddings.extend(embeddings)
 
-        for m, emb in zip(batch, embeddings):
-            cache[m["tmdb_id"]] = np.array(emb, dtype=np.float32)
+        done = min(i + BATCH_SIZE, len(movies))
+        print(f"  Embedded {done}/{len(movies)}")
 
-        done = min(i + BATCH_SIZE, len(to_embed))
-        print(f"  Embedded {done}/{len(to_embed)}")
-
-    save_embedding_cache(cache)
-    return cache
+    return all_embeddings
 
 
-def reduce_dimensions(movies, target_dim=16):
-    """UMAP reduction from high-dim to target_dim."""
+def generate_with_sentence_transformers(movies, model_name: str):
+    from sentence_transformers import SentenceTransformer
+
+    print(f"Loading sentence-transformers model: {model_name}")
+    model = SentenceTransformer(model_name)
+
+    all_embeddings = []
+    for i in range(0, len(movies), BATCH_SIZE):
+        batch = movies[i:i + BATCH_SIZE]
+        texts = [f"search_document: {m['text']}" for m in batch]
+        embeddings = model.encode(
+            texts,
+            batch_size=min(BATCH_SIZE, len(batch)),
+            show_progress_bar=False,
+            convert_to_numpy=True,
+            normalize_embeddings=False,
+        )
+        all_embeddings.extend(embeddings)
+
+        done = min(i + BATCH_SIZE, len(movies))
+        print(f"  Embedded {done}/{len(movies)}")
+
+    return all_embeddings
+
+
+def generate_embeddings(movies, cache, args, cache_scope):
+    to_embed = []
+    reused = 0
+
+    for movie in movies:
+        if not args.force_full_recompute:
+            cached = cache.get(movie["tmdb_id"])
+            if cached and cached[0] == movie["cache_hash"]:
+                movie["embedding"] = cached[1]
+                reused += 1
+                continue
+        to_embed.append(movie)
+
+    print(f"Embeddings: {reused} cached, {len(to_embed)} to generate")
+
+    if to_embed:
+        if args.embed_backend == "ollama":
+            new_embeddings = generate_with_ollama(to_embed)
+        else:
+            new_embeddings = generate_with_sentence_transformers(to_embed, args.sentence_model)
+
+        for movie, emb in zip(to_embed, new_embeddings):
+            emb_arr = np.array(emb, dtype=np.float32)
+            movie["embedding"] = emb_arr
+            cache[movie["tmdb_id"]] = (movie["cache_hash"], emb_arr)
+
+    if args.cache_prune:
+        valid_ids = {m["tmdb_id"] for m in movies}
+        stale = [tmdb_id for tmdb_id in cache if tmdb_id not in valid_ids]
+        for tmdb_id in stale:
+            del cache[tmdb_id]
+        if stale:
+            print(f"Pruned stale cache entries: {len(stale)}")
+
+    save_embedding_cache(cache_scope, cache)
+
+
+def reduce_dimensions(movies, target_dim=16, verbose=False):
     import umap
-    print(f"Running UMAP {movies[0]['embedding'].shape[0]}-dim → {target_dim}-dim...")
+
     embeddings = np.stack([m["embedding"] for m in movies])
+    print(f"Running UMAP {embeddings.shape[1]}-dim -> {target_dim}-dim...")
 
     reducer = umap.UMAP(
         n_components=target_dim,
@@ -193,7 +317,7 @@ def reduce_dimensions(movies, target_dim=16):
         n_neighbors=30,
         min_dist=0.1,
         random_state=42,
-        verbose=True,
+        verbose=verbose,
     )
     reduced = reducer.fit_transform(embeddings)
     print(f"UMAP done. Shape: {reduced.shape}")
@@ -201,7 +325,6 @@ def reduce_dimensions(movies, target_dim=16):
 
 
 def quantize(embeddings):
-    """Quantize float32 → uint8 per axis (min-max normalization)."""
     print("Quantizing to uint8...")
     mins = embeddings.min(axis=0)
     maxs = embeddings.max(axis=0)
@@ -214,18 +337,11 @@ def quantize(embeddings):
 
 
 def write_metadata_binary(movies, output_path):
-    """
-    Write metadata.bin:
-    [count: uint32]
-    [per movie: tmdb_id: uint32, imdb_num: uint32, rating_x10: uint8, title_len: uint8, title: utf8]
-    """
     print(f"Writing {output_path}...")
     with open(output_path, "wb") as f:
         f.write(struct.pack("<I", len(movies)))
-
         for movie in movies:
             title = movie["title"].encode("utf-8")[:255]
-
             f.write(struct.pack("<I", movie["tmdb_id"]))
             f.write(struct.pack("<I", movie["imdb_num"]))
             f.write(struct.pack("<B", movie["rating_x10"]))
@@ -236,60 +352,60 @@ def write_metadata_binary(movies, output_path):
     print(f"Written {len(movies)} metadata, {size:,} bytes ({size / 1024 / 1024:.1f} MB)")
 
 
-def write_binary(movies, quantized, output_path):
-    """
-    Write embeddings.bin:
-    [count: uint32]
-    [per movie: tmdb_id: uint32, poster_path_len: uint8, poster_path: utf8, embedding: uint8[16]]
-    """
+def write_embeddings_binary(movies, quantized, output_path):
     print(f"Writing {output_path}...")
     with open(output_path, "wb") as f:
         f.write(struct.pack("<I", len(movies)))
-
         for i, movie in enumerate(movies):
-            tmdb_id = movie["tmdb_id"]
             poster_path = movie["poster_path"].encode("utf-8")
-            embedding = quantized[i]
-
-            f.write(struct.pack("<I", tmdb_id))
+            f.write(struct.pack("<I", movie["tmdb_id"]))
             f.write(struct.pack("<B", len(poster_path)))
             f.write(poster_path)
-            f.write(embedding.tobytes())
+            f.write(quantized[i].tobytes())
 
     size = Path(output_path).stat().st_size
     print(f"Written {len(movies)} movies, {size:,} bytes ({size / 1024 / 1024:.1f} MB)")
 
 
 def main():
-    check_ollama()
+    args = parse_args()
+    if should_force_full_recompute(args.full_recompute_every_weeks):
+        args.force_full_recompute = True
+
+    if args.force_full_recompute:
+        print("Full recompute is enabled for this run")
+
+    if args.embed_backend == "ollama":
+        check_ollama()
 
     output_dir = Path(__file__).parent.parent / "public" / "data"
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    cache_scope = compute_cache_scope(args)
+
     df = load_dataset()
-    movies = filter_movies(df)
-
+    movies = filter_movies(df, cache_scope)
     if not movies:
-        print("ERROR: No movies passed filters!")
-        return
+        print("ERROR: No movies passed filters")
+        return 1
 
-    # Generate embeddings
-    cache = load_embedding_cache()
-    cache = generate_embeddings(movies, cache)
+    cache = load_embedding_cache(cache_scope)
+    generate_embeddings(movies, cache, args, cache_scope)
 
-    # Attach embeddings to movies
-    for m in movies:
-        m["embedding"] = cache[m["tmdb_id"]]
+    missing = [m["tmdb_id"] for m in movies if "embedding" not in m]
+    if missing:
+        print(f"ERROR: Missing embeddings for {len(missing)} movies")
+        return 1
 
-    # UMAP + quantize + write
-    reduced = reduce_dimensions(movies, target_dim=16)
+    reduced = reduce_dimensions(movies, target_dim=16, verbose=not args.ci)
     quantized = quantize(reduced)
-    write_binary(movies, quantized, output_dir / "embeddings.bin")
+
+    write_embeddings_binary(movies, quantized, output_dir / "embeddings.bin")
     write_metadata_binary(movies, output_dir / "metadata.bin")
 
     print(f"\nDone! Movies: {len(movies)}")
-    print("To test: npx vite")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

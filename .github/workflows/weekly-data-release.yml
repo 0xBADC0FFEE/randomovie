@@ -1,0 +1,70 @@
+name: Weekly Data Release
+
+on:
+  schedule:
+    - cron: '17 3 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: weekly-data-release
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish-data:
+    runs-on: ubuntu-latest
+    env:
+      KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+      KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+      FULL_RECOMPUTE_EVERY_WEEKS: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Restore embedding cache
+        uses: actions/cache@v4
+        with:
+          path: scripts/embedding_cache.npz
+          key: embedding-cache-v2-${{ runner.os }}-${{ hashFiles('scripts/pipeline.py') }}
+          restore-keys: |
+            embedding-cache-v2-${{ runner.os }}-
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install kagglehub pandas numpy umap-learn requests sentence-transformers
+
+      - name: Generate embeddings + metadata
+        run: |
+          python scripts/pipeline.py \
+            --ci \
+            --embed-backend sentence-transformers \
+            --cache-prune \
+            --full-recompute-every-weeks "${FULL_RECOMPUTE_EVERY_WEEKS}"
+
+      - name: Ensure data-latest release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view data-latest >/dev/null 2>&1; then
+            gh release create data-latest \
+              --title "Data latest" \
+              --notes "Auto-updated data assets for vibefind."
+          fi
+
+      - name: Replace data assets in release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete-asset data-latest embeddings.bin -y || true
+          gh release delete-asset data-latest metadata.bin -y || true
+          gh release upload data-latest \
+            public/data/embeddings.bin#embeddings.bin \
+            public/data/metadata.bin#metadata.bin \
+            --clobber

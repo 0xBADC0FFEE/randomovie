@@ -756,20 +756,34 @@ function handleWorkerMessage(e: MessageEvent) {
 }
 
 async function loadEmbeddings(): Promise<EmbeddingsIndex> {
+  const remote = 'https://github.com/0xBADC0FFEE/vibefind/releases/download/data-latest/embeddings.bin'
+  const local = `${import.meta.env.BASE_URL}data/embeddings.bin`
+
   try {
-    const resp = await fetch(`${import.meta.env.BASE_URL}data/embeddings.bin`)
+    const resp = await fetch(remote)
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
     const buffer = await resp.arrayBuffer()
     return parseEmbeddings(buffer)
   } catch {
-    console.warn('No embeddings.bin found, using mock data')
-    return generateMockIndex(5000)
+    try {
+      const resp = await fetch(local)
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+      const buffer = await resp.arrayBuffer()
+      return parseEmbeddings(buffer)
+    } catch {
+      console.error('Failed to load embeddings from release or local fallback')
+      console.warn('No embeddings.bin found, using mock data')
+      return generateMockIndex(5000)
+    }
   }
 }
 
 async function loadTitles(): Promise<boolean> {
+  const remote = 'https://github.com/0xBADC0FFEE/vibefind/releases/download/data-latest/metadata.bin'
+  const local = `${import.meta.env.BASE_URL}data/metadata.bin`
+
   try {
-    const resp = await fetch(`${import.meta.env.BASE_URL}data/metadata.bin`)
+    const resp = await fetch(remote)
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
     const buffer = await resp.arrayBuffer()
 
@@ -790,8 +804,30 @@ async function loadTitles(): Promise<boolean> {
       searchWorker.postMessage({ type: 'init', buffer: workerBuffer }, [workerBuffer])
     })
   } catch {
-    console.warn('No metadata.bin found, search disabled')
-    return false
+    try {
+      const resp = await fetch(local)
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+      const buffer = await resp.arrayBuffer()
+
+      const { parseTitles } = await import('./engine/titles.ts')
+      titlesIndex = parseTitles(buffer)
+
+      const workerBuffer = buffer.slice(0)
+      return new Promise<boolean>((resolve) => {
+        searchWorker.onmessage = (e) => {
+          if (e.data.type === 'ready') {
+            searchReady = true
+            searchWorker.onmessage = handleWorkerMessage
+            resolve(true)
+          }
+        }
+        searchWorker.postMessage({ type: 'init', buffer: workerBuffer }, [workerBuffer])
+      })
+    } catch {
+      console.error('Failed to load metadata from release or local fallback')
+      console.warn('No metadata.bin found, search disabled')
+      return false
+    }
   }
 }
 

@@ -57,7 +57,7 @@ ollama pull nomic-embed-text-v2-moe
 # Set up Python env
 python -m venv .venv
 source .venv/bin/activate
-pip install kagglehub pandas numpy umap-learn requests
+pip install kagglehub pandas numpy umap-learn requests sentence-transformers
 
 # Requires Kaggle API key in ~/.kaggle/kaggle.json
 python scripts/pipeline.py
@@ -86,6 +86,13 @@ Output goes to `dist/`.
 
 Pushing to `main` auto-deploys to GitHub Pages via Actions. Live at **https://0xBADC0FFEE.github.io/vibefind/**
 
+Movie binaries are served from the fixed release tag `data-latest`:
+
+- `https://github.com/0xBADC0FFEE/vibefind/releases/download/data-latest/embeddings.bin`
+- `https://github.com/0xBADC0FFEE/vibefind/releases/download/data-latest/metadata.bin`
+
+Weekly workflow `.github/workflows/weekly-data-release.yml` recalculates both files and replaces release assets.
+
 Installable as a PWA (offline-capable after first load).
 
 ## Project structure
@@ -109,7 +116,7 @@ src/
   canvas/
     poster-loader.ts     — image cache keyed by grid cell, adaptive LOD
 scripts/
-  pipeline.py            — Kaggle → Ollama embeddings → UMAP → quantize → .bin
+  pipeline.py            — Kaggle → embeddings (Ollama or sentence-transformers) → UMAP → quantize → .bin
 ```
 
 ## Debug mode

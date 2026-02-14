@@ -27,3 +27,4 @@ dist-ssr
 scripts/embedding_cache.npz
 scripts/*.csv
 scripts/.venv/
+public/data/*.bin
