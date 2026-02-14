@@ -120,7 +120,7 @@ def filter_movies(df, cache_scope: str):
         if not np.isfinite(imdb_votes) or not np.isfinite(imdb_rating):
             continue
 
-        if imdb_votes < 100 or imdb_rating < 5.0:
+        if imdb_votes <= 1000 or imdb_rating < 5.0:
             continue
 
         title = str(row.get("title") or row.get("original_title") or "").strip()

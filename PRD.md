@@ -35,7 +35,7 @@ Infinite 2D canvas of movie posters. No lists, no categories. You pan around, an
 - **Client-side only**: similarity search runs in-browser (~1ms per query)
 - **Initial download**: ~2MB (embeddings + metadata + app shell), cached by Service Worker
 - **Poster images**: loaded on demand from TMDB CDN
-- **Catalog**: ~80k movies (filtered from Kaggle TMDB dataset: has poster, IMDb votes >100, IMDb rating >5.0)
+- **Catalog**: ~80k movies (filtered from Kaggle TMDB dataset: has poster, IMDb votes >1000, IMDb rating >5.0)
 
 ## Platform
 
