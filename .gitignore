@@ -27,4 +27,5 @@ dist-ssr
 scripts/embedding_cache.npz
 scripts/*.csv
 scripts/.venv/
+scripts/__pycache__/
 public/data/*.bin
