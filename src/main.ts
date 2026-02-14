@@ -1,4 +1,4 @@
-import { createViewport, centerOn, getVisibleRange, getCenterOutOffsets, PRELOAD_BUFFER, CELL_W, CELL_H, screenToWorld } from './canvas/viewport.ts'
+import { createViewport, centerOn, getVisibleRange, getCenterOutOffsets, PRELOAD_BUFFER, CELL_W, CELL_H, screenToWorld, worldToScreen } from './canvas/viewport.ts'
 import { createGestureState, setupGestures, type TapIntent } from './canvas/gestures.ts'
 import { render, preloadPosters } from './canvas/renderer.ts'
 import type { FilterSwapFxEntry } from './canvas/renderer.ts'
@@ -62,6 +62,7 @@ const FILTER_REPLACE_BATCH = 14
 const FILTER_SWAP_TIMEOUT = 500
 const HINT_DURATION_MS = 1200
 const TRACKPAD_PREF_KEY = 'vibefind.trackpad_pan_mac'
+const CENTER_TARGET_BIAS_PX = -4
 
 const rIC: typeof requestIdleCallback = window.requestIdleCallback
   ?? ((cb) => setTimeout(() => cb({
@@ -78,6 +79,21 @@ const ratingStars = Array.from(
   ratingStrip.querySelectorAll<HTMLButtonElement>('.rating-star'),
 )
 const searchHint = document.getElementById('search-hint') as HTMLDivElement
+
+function computeVisibleCenterArea(pad = 0): { top: number; bottom: number; centerY: number } {
+  const vv = window.visualViewport
+  const visualTop = vv ? Math.max(0, vv.offsetTop) : 0
+  const visualH = vv ? Math.max(1, vv.height) : window.innerHeight
+  const safeTopY = visualTop + safeTop
+  const panelH = Math.max(1, searchPanel.getBoundingClientRect().height)
+  const panelBottomOffset = Math.max(0, parseFloat(getComputedStyle(searchPanel).bottom) || 0)
+  const viewportBottomY = visualTop + visualH
+  const panelTop = viewportBottomY - panelBottomOffset - panelH
+  const centerY = (safeTopY + panelTop) / 2 + CENTER_TARGET_BIAS_PX
+  const top = safeTopY + pad
+  const bottom = Math.max(top + 1, panelTop - pad)
+  return { top, bottom, centerY }
+}
 
 let nativeDpr = window.devicePixelRatio || 1
 let motionDpr = Math.min(nativeDpr, nativeDpr * MOTION_DPR_CAP)
@@ -142,6 +158,7 @@ let movieByTmdbId = new Map<number, MovieEntry>()
 let titlesIndex: TitlesIndex | null = null
 let searchMode = false
 let searchCell: [number, number] = [0, 0]
+let searchRecenterTimer = 0
 let searchDebounceId = 0
 let fillCoherent = false
 let fillDebounceId = 0
@@ -564,6 +581,7 @@ function scheduleRepaint() {
   repaintScheduled = true
   requestAnimationFrame(() => {
     repaintScheduled = false
+    if (searchMode) alignSearchCellToCenterLine()
     render(ctx, vp, grid, titlesIndex, activeWave, filterSwapFx, currentDpr)
   })
 }
@@ -602,6 +620,7 @@ function update() {
   if (maybeApplyDpr(targetDpr)) {
     lastPreloadSig = ''
   }
+  if (searchMode) alignSearchCellToCenterLine()
 
   let n = 0
   if (!fillPending) {
@@ -637,6 +656,24 @@ function update() {
 function findCenterCell(): [number, number] {
   const [wx, wy] = screenToWorld(vp, vp.width / 2, vp.height / 2)
   return [Math.round(wx / CELL_W - 0.5), Math.round(wy / CELL_H - 0.5)]
+}
+
+function getVisualTop(): number {
+  const vv = window.visualViewport
+  if (!vv) return 0
+  const byTop = vv.offsetTop
+  const byBottom = vv.offsetTop + vv.height - vp.height
+  // iOS standalone can report a large offsetTop while canvas coords are closer to bottom-derived offset.
+  return Math.abs(byBottom) < Math.abs(byTop) ? byBottom : byTop
+}
+
+function alignSearchCellToCenterLine() {
+  if (!searchMode) return
+  const area = computeVisibleCenterArea(24)
+  const [sx, sy] = worldToScreen(vp, searchCell[0] * CELL_W, searchCell[1] * CELL_H)
+  const currentScreenCenterY = sy + (CELL_H * vp.scale) / 2 + getVisualTop()
+  const delta = area.centerY - currentScreenCenterY
+  if (Number.isFinite(delta) && Math.abs(delta) > 0.25) vp.offsetY += delta
 }
 
 function focusOn(col: number, row: number, seed?: MovieEntry, delay = 0, center = true) {
@@ -678,13 +715,23 @@ function centerCardForSearch(col: number, row: number, viewTop: number, viewH: n
   const pad = 24
   const availH = viewH - safeTop - panelH - pad * 2
   const availW = vp.width - pad * 2
+  const keyboardOpen = searchMode
+
   const scaleH = availH / CELL_H
   const scaleW = availW / CELL_W
   const targetScale = Math.min(scaleH, scaleW)
-
-  const centerY = viewTop + (viewH - panelH + safeTop) / 2
   const targetOffsetX = vp.width / 2 - (col + 0.5) * CELL_W * targetScale
-  const targetOffsetY = centerY - (row + 0.5) * CELL_H * targetScale
+  const worldCenterYScaled = (row + 0.5) * CELL_H * targetScale
+  let targetOffsetY = 0
+
+  if (keyboardOpen) {
+    const area = computeVisibleCenterArea(pad)
+    const desiredScreenCenterY = area.centerY
+    targetOffsetY = desiredScreenCenterY - getVisualTop() - worldCenterYScaled
+  } else {
+    const centerY = viewTop + (viewH - panelH + safeTop) / 2
+    targetOffsetY = centerY - worldCenterYScaled
+  }
 
   if (animate) {
     animateViewport(anim, vp, targetOffsetX, targetOffsetY, targetScale, scheduleRender)
@@ -692,8 +739,39 @@ function centerCardForSearch(col: number, row: number, viewTop: number, viewH: n
     vp.offsetX = targetOffsetX
     vp.offsetY = targetOffsetY
     vp.scale = targetScale
+    if (keyboardOpen) {
+      const desiredScreenCenterY = computeVisibleCenterArea(pad).centerY
+      const [sx, sy] = worldToScreen(vp, col * CELL_W, row * CELL_H)
+      const currentScreenCenterY = sy + (CELL_H * vp.scale) / 2 + getVisualTop()
+      const correction = desiredScreenCenterY - currentScreenCenterY
+      if (Number.isFinite(correction) && Math.abs(correction) > 0.5) {
+        vp.offsetY += correction
+      }
+    }
     scheduleRender()
   }
+}
+
+function recenterSearchCardNow() {
+  if (!searchMode) return
+  const vvp = window.visualViewport
+  const viewTop = vvp ? Math.max(0, vvp.offsetTop) : 0
+  const viewH = vvp ? Math.max(1, vvp.height) : vp.height
+  centerCardForSearch(searchCell[0], searchCell[1], viewTop, viewH, false)
+}
+
+function scheduleSearchRecenterBurst() {
+  if (!searchMode) return
+  clearTimeout(searchRecenterTimer)
+  let step = 0
+  const tick = () => {
+    if (!searchMode) return
+    recenterSearchCardNow()
+    step++
+    if (step >= 10) return
+    searchRecenterTimer = window.setTimeout(tick, step < 4 ? 45 : 90)
+  }
+  tick()
 }
 
 /** Enter search mode: animate viewport to center+fit one card above input */
@@ -705,6 +783,7 @@ function enterSearchMode() {
 
   searchCell = findCenterCell()
   centerCardForSearch(searchCell[0], searchCell[1], 0, vp.height)
+  scheduleSearchRecenterBurst()
 }
 
 /** Exit search mode */
@@ -713,6 +792,8 @@ function exitSearchMode() {
   if (isDraggingFilter) return
 
   searchMode = false
+  clearTimeout(searchRecenterTimer)
+  searchRecenterTimer = 0
   gs.disabled = false
   fillCoherent = false
   searchPanel.classList.remove('active')
@@ -748,6 +829,15 @@ function handleWorkerMessage(e: MessageEvent) {
     const entry = movieByTmdbId.get(tmdbId)
     if (!entry) return
 
+    if (searchMode) {
+      const [col, row] = searchCell
+      focusOn(col, row, entry, FILL_DELAY, false)
+      const vvp = window.visualViewport
+      const viewTop = vvp ? Math.max(0, vvp.offsetTop) : 0
+      const viewH = vvp ? Math.max(1, vvp.height) : vp.height
+      centerCardForSearch(col, row, viewTop, viewH, false)
+      return
+    }
     const [col, row] = findCenterCell()
     focusOn(col, row, entry, FILL_DELAY)
   }
@@ -811,6 +901,7 @@ async function loadTitles(): Promise<boolean> {
 function setupSearch() {
   searchInput.addEventListener('focus', () => {
     enterSearchMode()
+    scheduleSearchRecenterBurst()
   })
 
   searchInput.addEventListener('blur', () => {
@@ -841,6 +932,7 @@ function setupSearch() {
   })
 
   searchInput.addEventListener('input', () => {
+    if (searchMode) scheduleSearchRecenterBurst()
     clearTimeout(searchDebounceId)
     searchHint.classList.remove('show')
     searchDebounceId = window.setTimeout(() => {
@@ -1012,6 +1104,7 @@ async function init() {
   resize()
   applyTrackpadPanEnabled(loadTrackpadPanPreference())
   window.addEventListener('resize', () => {
+    safeTop = getSafeAreaTop()
     refreshDprTargets()
     const speed = Math.hypot(gs.velocityX, gs.velocityY)
     const isInMotion = gs.active || speed > MOTION_VELOCITY_THRESHOLD
