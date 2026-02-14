@@ -26,7 +26,7 @@ Infinite 2D canvas of movie posters. No lists, no categories. You pan around, an
 - When a new cell needs filling: average the embeddings of visible neighbors (weighted by proximity), add noise, find closest match
 - Scroll direction is extrapolated to continue genre trends (gradient extrapolation)
 - 5–40% of new cells inject diversity (scales with swipe speed) — prevents similarity bubbles, fast flicks explore more
-- Min-rating filter (if set) prefilters candidate pool before generation; similarity is computed within filtered pool
+- Min-rating filter (if set) prefilters candidate pool by IMDb rating/votes before generation; similarity is computed within filtered pool
 - Already-placed movies are stable except explicit refresh actions (search/focus/long-press/filter change)
 
 ## Constraints
@@ -35,7 +35,7 @@ Infinite 2D canvas of movie posters. No lists, no categories. You pan around, an
 - **Client-side only**: similarity search runs in-browser (~1ms per query)
 - **Initial download**: ~2MB (embeddings + metadata + app shell), cached by Service Worker
 - **Poster images**: loaded on demand from TMDB CDN
-- **Catalog**: ~80k movies (filtered from TMDB: has poster, >100 votes, rating >5.0)
+- **Catalog**: ~80k movies (filtered from Kaggle TMDB dataset: has poster, IMDb votes >100, IMDb rating >5.0)
 
 ## Platform
 
@@ -45,7 +45,7 @@ PWA. Works on any phone or desktop browser. Installable to home screen.
 
 - Vanilla TypeScript + Vite (no framework)
 - HTML5 Canvas 2D rendering
-- TMDB for posters and metadata
+- TMDB for posters; metadata includes IMDb rating/votes from dataset columns
 - Kaggle dataset ([alanvourch/tmdb-movies-daily-updates](https://www.kaggle.com/datasets/alanvourch/tmdb-movies-daily-updates)) + Ollama embeddings
 
 ## MVP Scope (v0.1) — done

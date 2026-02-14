@@ -2,7 +2,7 @@ export interface TitlesIndex {
   titles: string[]
   tmdbIds: Uint32Array
   imdbNums: Uint32Array
-  ratings: Uint8Array  // vote_average × 10
+  ratings: Uint8Array  // IMDb rating × 10
   idToIdx: Map<number, number>  // tmdbId → index in titles/tmdbIds
 }
 

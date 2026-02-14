@@ -107,15 +107,20 @@ def filter_movies(df, cache_scope: str):
         if not isinstance(poster, str) or not poster:
             continue
 
-        votes = row.get("vote_count", 0)
-        rating = row.get("vote_average", 0)
+        imdb_rating_raw = row.get("imdb_rating", 0)
+        imdb_votes_raw = row.get("imdb_votes", 0)
+        if isinstance(imdb_votes_raw, str):
+            imdb_votes_raw = imdb_votes_raw.replace(",", "").replace(" ", "")
         try:
-            votes = float(votes or 0)
-            rating = float(rating or 0)
+            imdb_votes = float(imdb_votes_raw or 0)
+            imdb_rating = float(imdb_rating_raw or 0)
         except (ValueError, TypeError):
             continue
 
-        if votes < 100 or rating < 5.0:
+        if not np.isfinite(imdb_votes) or not np.isfinite(imdb_rating):
+            continue
+
+        if imdb_votes < 100 or imdb_rating < 5.0:
             continue
 
         title = str(row.get("title") or row.get("original_title") or "").strip()
@@ -146,7 +151,7 @@ def filter_movies(df, cache_scope: str):
             except ValueError:
                 pass
 
-        rating_x10 = min(100, max(0, int(round(rating * 10))))
+        rating_x10 = min(100, max(0, int(round(imdb_rating * 10))))
 
         filtered.append({
             "tmdb_id": tmdb_id,

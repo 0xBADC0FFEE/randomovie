@@ -11,13 +11,13 @@ Infinite 2D canvas of movie posters. Swipe in any direction — see similar movi
 2. Noise is added for variety
 3. Brute-force search finds the closest match (~1ms)
 4. 5% of tiles are fully random to prevent similarity bubbles
-5. If min-rating filter is set, generation runs on a prefiltered movie pool (`rating >= threshold`)
+5. If min-rating filter is set, generation runs on a prefiltered movie pool (`IMDb rating >= threshold`)
 
 All computation runs client-side. No backend needed.
 
 ## Rating overlay
 
-Each poster has a shape in the bottom-right corner that morphs from dot to star based on TMDB rating:
+Each poster has a shape in the bottom-right corner that morphs from dot to star based on IMDb rating:
 
 ```
  · →  ●  →  ◆  →  ✦  →  ★
@@ -28,7 +28,7 @@ Formula: `t = clamp((rating − 5) / 3, 0, 1)`. Rendered with `difference` blend
 
 ## Rating filter
 
-Search panel has a minimum-rating slider (5.0–8.0). It does two things:
+Search panel has a minimum IMDb-rating slider (5.0–8.0). It does two things:
 
 1. Rebuilds active movie pool before generation (`activeIndex`), so similarity picks only from allowed movies
 2. Replaces already visible tiles that violate threshold
