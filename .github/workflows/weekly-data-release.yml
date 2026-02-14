@@ -47,23 +47,33 @@ jobs:
             --cache-prune \
             --full-recompute-every-weeks "${FULL_RECOMPUTE_EVERY_WEEKS}"
 
-      - name: Ensure data-latest release exists
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Publish bins to data-latest branch
         run: |
-          if ! gh release view data-latest >/dev/null 2>&1; then
-            gh release create data-latest \
-              --title "Data latest" \
-              --notes "Auto-updated data assets for vibefind."
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          rm -rf /tmp/data-latest
+          git clone --depth=1 --branch data-latest "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" /tmp/data-latest || true
+
+          if [ ! -d /tmp/data-latest/.git ]; then
+            mkdir -p /tmp/data-latest
+            cd /tmp/data-latest
+            git init
+            git checkout -b data-latest
+            git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          else
+            cd /tmp/data-latest
           fi
 
-      - name: Replace data assets in release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release delete-asset data-latest embeddings.bin -y || true
-          gh release delete-asset data-latest metadata.bin -y || true
-          gh release upload data-latest \
-            public/data/embeddings.bin#embeddings.bin \
-            public/data/metadata.bin#metadata.bin \
-            --clobber
+          mkdir -p data
+          cp "${GITHUB_WORKSPACE}/public/data/embeddings.bin" data/embeddings.bin
+          cp "${GITHUB_WORKSPACE}/public/data/metadata.bin" data/metadata.bin
+
+          if [ -n "$(git status --porcelain)" ]; then
+            git add data/embeddings.bin data/metadata.bin
+            git commit -m "chore(data): weekly refresh bins"
+            git push origin data-latest
+          else
+            echo "No data changes to publish"
+          fi

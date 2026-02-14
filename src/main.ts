@@ -756,7 +756,7 @@ function handleWorkerMessage(e: MessageEvent) {
 }
 
 async function loadEmbeddings(): Promise<EmbeddingsIndex> {
-  const remote = 'https://github.com/0xBADC0FFEE/vibefind/releases/download/data-latest/embeddings.bin'
+  const remote = 'https://raw.githubusercontent.com/0xBADC0FFEE/vibefind/data-latest/data/embeddings.bin'
   const local = `${import.meta.env.BASE_URL}data/embeddings.bin`
 
   try {
@@ -779,7 +779,7 @@ async function loadEmbeddings(): Promise<EmbeddingsIndex> {
 }
 
 async function loadTitles(): Promise<boolean> {
-  const remote = 'https://github.com/0xBADC0FFEE/vibefind/releases/download/data-latest/metadata.bin'
+  const remote = 'https://raw.githubusercontent.com/0xBADC0FFEE/vibefind/data-latest/data/metadata.bin'
   const local = `${import.meta.env.BASE_URL}data/metadata.bin`
 
   try {
