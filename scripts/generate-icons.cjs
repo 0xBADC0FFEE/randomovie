@@ -210,6 +210,10 @@ const png192 = drawIcon(192);
 fs.writeFileSync(path.join(outDir, "icon-192.png"), png192);
 console.log("wrote icon-192.png (" + png192.length + " bytes)");
 
+const favicon = drawIcon(32);
+fs.writeFileSync(path.join(outDir, "favicon.png"), favicon);
+console.log("wrote favicon.png (" + favicon.length + " bytes)");
+
 const png512 = drawIcon(512);
 fs.writeFileSync(path.join(outDir, "icon-512.png"), png512);
 console.log("wrote icon-512.png (" + png512.length + " bytes)");
