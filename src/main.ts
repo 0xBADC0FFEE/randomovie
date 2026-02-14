@@ -675,7 +675,7 @@ function getVisualTop(): number {
 function alignSearchCellToCenterLine() {
   if (!searchMode) return
   const area = computeVisibleCenterArea(24)
-  const [sx, sy] = worldToScreen(vp, searchCell[0] * CELL_W, searchCell[1] * CELL_H)
+  const [, sy] = worldToScreen(vp, searchCell[0] * CELL_W, searchCell[1] * CELL_H)
   const currentScreenCenterY = sy + (CELL_H * vp.scale) / 2 + getVisualTop()
   const delta = area.centerY - currentScreenCenterY
   if (Number.isFinite(delta) && Math.abs(delta) > 0.25) vp.offsetY += delta
@@ -746,7 +746,7 @@ function centerCardForSearch(col: number, row: number, viewTop: number, viewH: n
     vp.scale = targetScale
     if (keyboardOpen) {
       const desiredScreenCenterY = computeVisibleCenterArea(pad).centerY
-      const [sx, sy] = worldToScreen(vp, col * CELL_W, row * CELL_H)
+      const [, sy] = worldToScreen(vp, col * CELL_W, row * CELL_H)
       const currentScreenCenterY = sy + (CELL_H * vp.scale) / 2 + getVisualTop()
       const correction = desiredScreenCenterY - currentScreenCenterY
       if (Number.isFinite(correction) && Math.abs(correction) > 0.5) {
