@@ -73,6 +73,8 @@ First run takes a while (embedding generation + UMAP). Subsequent runs are fast 
 npm run dev
 ```
 
+In dev mode, binaries are loaded locally from `public/data` via `/data/embeddings.bin` and `/data/metadata.bin`.
+
 Posters load from TMDB CDN. The canvas is infinite in all directions.
 
 ## Build
@@ -86,12 +88,14 @@ Output goes to `dist/`.
 
 Pushing to `main` auto-deploys to GitHub Pages via Actions. Live at **https://0xBADC0FFEE.github.io/vibefind/**
 
-Movie binaries are served from the fixed release tag `data-latest`:
+Movie binary source depends on mode:
 
-- `https://github.com/0xBADC0FFEE/vibefind/releases/download/data-latest/embeddings.bin`
-- `https://github.com/0xBADC0FFEE/vibefind/releases/download/data-latest/metadata.bin`
+- Dev (`npm run dev`): local `/data/embeddings.bin` and `/data/metadata.bin` from `public/data`.
+- Production/preview (`npm run build && npm run preview`): remote `data-latest` raw URLs:
+  - `https://raw.githubusercontent.com/0xBADC0FFEE/vibefind/data-latest/data/embeddings.bin`
+  - `https://raw.githubusercontent.com/0xBADC0FFEE/vibefind/data-latest/data/metadata.bin`
 
-Weekly workflow `.github/workflows/weekly-data-release.yml` recalculates both files and replaces release assets.
+Weekly workflow `.github/workflows/weekly-data-release.yml` refreshes the `data-latest` binaries.
 
 Installable as a PWA (offline-capable after first load).
 
