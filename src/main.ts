@@ -788,7 +788,8 @@ function enterSearchMode() {
 
   searchCell = findCenterCell()
   centerCardForSearch(searchCell[0], searchCell[1], 0, vp.height)
-  scheduleSearchRecenterBurst()
+  // burst recentering only needed on mobile where virtual keyboard resizes viewport
+  if ('ontouchstart' in window) scheduleSearchRecenterBurst()
 }
 
 function centerSearchCellOnCanvas() {
@@ -918,7 +919,7 @@ async function loadTitles(): Promise<boolean> {
 function setupSearch() {
   searchInput.addEventListener('focus', () => {
     enterSearchMode()
-    scheduleSearchRecenterBurst()
+    if ('ontouchstart' in window) scheduleSearchRecenterBurst()
   })
 
   searchInput.addEventListener('blur', () => {
@@ -948,7 +949,7 @@ function setupSearch() {
   })
 
   searchInput.addEventListener('input', () => {
-    if (searchMode) scheduleSearchRecenterBurst()
+    if (searchMode && 'ontouchstart' in window) scheduleSearchRecenterBurst()
     clearTimeout(searchDebounceId)
     searchHint.classList.remove('show')
     searchDebounceId = window.setTimeout(() => {
