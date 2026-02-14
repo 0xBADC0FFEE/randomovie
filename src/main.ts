@@ -756,76 +756,55 @@ function handleWorkerMessage(e: MessageEvent) {
 async function loadEmbeddings(): Promise<EmbeddingsIndex> {
   const remote = 'https://raw.githubusercontent.com/0xBADC0FFEE/vibefind/data-latest/data/embeddings.bin'
   const local = `${import.meta.env.BASE_URL}data/embeddings.bin`
+  const source = import.meta.env.DEV ? local : remote
 
   try {
-    const resp = await fetch(remote)
+    const resp = await fetch(source)
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
     const buffer = await resp.arrayBuffer()
     return parseEmbeddings(buffer)
   } catch {
-    try {
-      const resp = await fetch(local)
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-      const buffer = await resp.arrayBuffer()
-      return parseEmbeddings(buffer)
-    } catch {
-      console.error('Failed to load embeddings from release or local fallback')
-      console.warn('No embeddings.bin found, using mock data')
-      return generateMockIndex(5000)
-    }
+    const from = import.meta.env.DEV ? 'local dev data/*.bin' : 'production remote data-latest'
+    console.error(`Failed to load embeddings from ${from}`)
+    console.warn('No embeddings.bin found, using mock data')
+    return generateMockIndex(5000)
   }
+}
+
+async function initTitlesFromBuffer(buffer: ArrayBuffer): Promise<boolean> {
+  // Parse in main thread (keeps imdbNums/ratings accessible)
+  const { parseTitles } = await import('./engine/titles.ts')
+  titlesIndex = parseTitles(buffer)
+
+  // Transfer a copy to the worker (original backing data stays with main thread)
+  const workerBuffer = buffer.slice(0)
+  return new Promise<boolean>((resolve) => {
+    searchWorker.onmessage = (e) => {
+      if (e.data.type === 'ready') {
+        searchReady = true
+        searchWorker.onmessage = handleWorkerMessage
+        resolve(true)
+      }
+    }
+    searchWorker.postMessage({ type: 'init', buffer: workerBuffer }, [workerBuffer])
+  })
 }
 
 async function loadTitles(): Promise<boolean> {
   const remote = 'https://raw.githubusercontent.com/0xBADC0FFEE/vibefind/data-latest/data/metadata.bin'
   const local = `${import.meta.env.BASE_URL}data/metadata.bin`
+  const source = import.meta.env.DEV ? local : remote
 
   try {
-    const resp = await fetch(remote)
+    const resp = await fetch(source)
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
     const buffer = await resp.arrayBuffer()
-
-    // Parse in main thread (keeps imdbNums/ratings accessible)
-    const { parseTitles } = await import('./engine/titles.ts')
-    titlesIndex = parseTitles(buffer)
-
-    // Transfer a copy to the worker (original backing data stays with main thread)
-    const workerBuffer = buffer.slice(0)
-    return new Promise<boolean>((resolve) => {
-      searchWorker.onmessage = (e) => {
-        if (e.data.type === 'ready') {
-          searchReady = true
-          searchWorker.onmessage = handleWorkerMessage
-          resolve(true)
-        }
-      }
-      searchWorker.postMessage({ type: 'init', buffer: workerBuffer }, [workerBuffer])
-    })
+    return initTitlesFromBuffer(buffer)
   } catch {
-    try {
-      const resp = await fetch(local)
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-      const buffer = await resp.arrayBuffer()
-
-      const { parseTitles } = await import('./engine/titles.ts')
-      titlesIndex = parseTitles(buffer)
-
-      const workerBuffer = buffer.slice(0)
-      return new Promise<boolean>((resolve) => {
-        searchWorker.onmessage = (e) => {
-          if (e.data.type === 'ready') {
-            searchReady = true
-            searchWorker.onmessage = handleWorkerMessage
-            resolve(true)
-          }
-        }
-        searchWorker.postMessage({ type: 'init', buffer: workerBuffer }, [workerBuffer])
-      })
-    } catch {
-      console.error('Failed to load metadata from release or local fallback')
-      console.warn('No metadata.bin found, search disabled')
-      return false
-    }
+    const from = import.meta.env.DEV ? 'local dev data/*.bin' : 'production remote data-latest'
+    console.error(`Failed to load metadata from ${from}`)
+    console.warn('No metadata.bin found, search disabled')
+    return false
   }
 }
 
