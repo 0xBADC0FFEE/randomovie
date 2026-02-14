@@ -2,12 +2,14 @@ import type { Viewport } from '../canvas/viewport.ts'
 import { screenToWorld, CELL_W, CELL_H } from '../canvas/viewport.ts'
 import type { GestureState } from '../canvas/gestures.ts'
 import type { Grid } from '../engine/grid.ts'
+import type { MotionDiversityMetrics } from '../engine/motion-profile.ts'
 
 const CELL_PX = 6
 const BUFFER = 12
 const FPS_WINDOW_MS = 5000
 const STATS_UPDATE_MS = 250
 const IDLE_GAP_MS = 300
+const MOTION_UPDATE_MS = 250
 
 interface FpsSample {
   ts: number
@@ -21,7 +23,7 @@ function embeddingToCSS(e: Uint8Array): string {
 export interface DebugOverlay {
   visible: boolean
   toggle(): void
-  update(vp: Viewport, gs: GestureState, grid: Grid): void
+  update(vp: Viewport, gs: GestureState, grid: Grid, metrics?: MotionDiversityMetrics): void
 }
 
 export function createDebugOverlay(): DebugOverlay {
@@ -56,8 +58,23 @@ export function createDebugOverlay(): DebugOverlay {
   statsEl.textContent = 'FPS -- | p50 -- | p95 --'
   el.appendChild(statsEl)
 
+  const motionEl = document.createElement('div')
+  Object.assign(motionEl.style, {
+    marginTop: '1px',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, monospace',
+    fontSize: '12px',
+    lineHeight: '1.2',
+    color: 'rgba(220, 240, 255, 0.95)',
+    letterSpacing: '0.02em',
+    whiteSpace: 'nowrap',
+  })
+  motionEl.textContent = 'V --'
+  el.appendChild(motionEl)
+
   let lastFrameTs = 0
   let lastStatsPaintTs = 0
+  let lastMotionPaintTs = 0
+  let smoothMotion = 0
   const samples: FpsSample[] = []
 
   function clamp(v: number, min: number, max: number): number {
@@ -109,7 +126,7 @@ export function createDebugOverlay(): DebugOverlay {
       this.visible = !this.visible
       el.style.display = this.visible ? '' : 'none'
     },
-    update(vp, _gs, grid) {
+    update(vp, _gs, grid, metrics) {
       if (!this.visible) return
       const now = performance.now()
 
@@ -124,6 +141,15 @@ export function createDebugOverlay(): DebugOverlay {
       lastFrameTs = now
 
       paintStats(now)
+      if (!metrics) {
+        motionEl.textContent = 'V --'
+      } else {
+        smoothMotion += (metrics.t - smoothMotion) * 0.12
+        if (now - lastMotionPaintTs >= MOTION_UPDATE_MS) {
+          lastMotionPaintTs = now
+          motionEl.textContent = `V ${Math.round(smoothMotion * 100)}`
+        }
+      }
 
       // Use continuous center (not rounded) to avoid minimap "step" jumps while panning.
       const [wcx, wcy] = screenToWorld(vp, vp.width / 2, vp.height / 2)

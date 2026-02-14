@@ -12,6 +12,7 @@ import { createAnimation, animateViewport } from './canvas/animation.ts'
 import { createDebugOverlay, type DebugOverlay } from './debug/overlay.ts'
 import type { TitlesIndex } from './engine/titles.ts'
 import { TOP_K, buildGenerationTarget, generateMovie } from './engine/generator.ts'
+import { calcMotionDiversityMetrics } from './engine/motion-profile.ts'
 import { buildRatingMorphPath, clampRatingX10 } from './ui/rating-morph.ts'
 import { parseSearchCommand } from './ui/search-command.ts'
 import { isBackgroundOpen } from './ui/link-open-intent.ts'
@@ -586,7 +587,8 @@ function scheduleRender(immediate?: boolean) {
 
 function update() {
   const now = performance.now()
-  const speed = Math.hypot(gs.velocityX, gs.velocityY)
+  const metrics = calcMotionDiversityMetrics(gs.velocityX, gs.velocityY, gs.active)
+  const speed = metrics.speed
   const isInMotion = gs.active || speed > MOTION_VELOCITY_THRESHOLD
   if (isInMotion) {
     lastMotionTs = now
@@ -604,12 +606,8 @@ function update() {
   let n = 0
   if (!fillPending) {
     if (gs.active) {
-      const t = Math.min(speed / 25, 1)
-      const noiseFactor = 0.08 + t * 0.72    // 0.08 -> 0.8
-      const randomChance = 0.05 + t * 0.55   // 0.05 -> 0.6
-
-      queueWorkerFill(getVisibleRange(vp), GESTURE_VISIBLE_FILL, noiseFactor, randomChance)
-      queueWorkerFill(getVisibleRange(vp, GESTURE_BUFFER), GESTURE_FILL, noiseFactor, randomChance)
+      queueWorkerFill(getVisibleRange(vp), GESTURE_VISIBLE_FILL, metrics.noiseFactor, metrics.randomChance)
+      queueWorkerFill(getVisibleRange(vp, GESTURE_BUFFER), GESTURE_FILL, metrics.noiseFactor, metrics.randomChance)
     } else {
       n = fillRange(grid, getVisibleRange(vp, PRELOAD_BUFFER), activeIndex, allowAll, fillCoherent, FILL_PER_FRAME)
     }
@@ -632,7 +630,7 @@ function update() {
     maybePreloadPosters(n > 0)
   }
   scheduleIdleFill()
-  debugOverlay?.update(vp, gs, grid)
+  debugOverlay?.update(vp, gs, grid, metrics)
 }
 
 /** Find cell col,row closest to screen center */
