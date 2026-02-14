@@ -50,20 +50,19 @@ jobs:
       - name: Publish bins to data-latest branch
         run: |
           set -euo pipefail
+          rm -rf /tmp/data-latest
+          git clone --depth=1 "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" /tmp/data-latest
+
+          cd /tmp/data-latest
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          rm -rf /tmp/data-latest
-          git clone --depth=1 --branch data-latest "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" /tmp/data-latest || true
-
-          if [ ! -d /tmp/data-latest/.git ]; then
-            mkdir -p /tmp/data-latest
-            cd /tmp/data-latest
-            git init
-            git checkout -b data-latest
-            git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          if git ls-remote --exit-code --heads origin data-latest >/dev/null 2>&1; then
+            git fetch origin refs/heads/data-latest:refs/remotes/origin/data-latest
+            git checkout -B data-latest refs/remotes/origin/data-latest
           else
-            cd /tmp/data-latest
+            git checkout --orphan data-latest
+            git rm -rf . || true
           fi
 
           mkdir -p data
