@@ -127,14 +127,18 @@ function maybeApplyDpr(nextDpr: number): boolean {
 }
 
 function onVisualViewportChange() {
-  if (!searchMode) return
-  const vvp = window.visualViewport!
+  if (searchMode) {
+    const vvp = window.visualViewport!
 
-  // Cancel any running enterSearchMode animation so tick() can't overwrite
-  cancelAnimationFrame(anim.id)
-  anim.running = false
+    // Cancel any running enterSearchMode animation so tick() can't overwrite
+    cancelAnimationFrame(anim.id)
+    anim.running = false
 
-  centerCardForSearch(searchCell[0], searchCell[1], vvp.offsetTop, vvp.height, false)
+    centerCardForSearch(searchCell[0], searchCell[1], vvp.offsetTop, vvp.height, false)
+  } else if (exitRecenterCell) {
+    centerSearchCellOnCanvas()
+    scheduleRepaint()
+  }
 }
 
 const vp = createViewport(window.innerWidth, window.innerHeight)
@@ -159,6 +163,7 @@ let titlesIndex: TitlesIndex | null = null
 let searchMode = false
 let searchCell: [number, number] = [0, 0]
 let searchRecenterTimer = 0
+let exitRecenterCell: [number, number] | null = null
 let searchDebounceId = 0
 let fillCoherent = false
 let fillDebounceId = 0
@@ -786,6 +791,14 @@ function enterSearchMode() {
   scheduleSearchRecenterBurst()
 }
 
+function centerSearchCellOnCanvas() {
+  if (!exitRecenterCell) return
+  const [col, row] = exitRecenterCell
+  const s = vp.scale
+  vp.offsetX = vp.width / 2 - (col + 0.5) * CELL_W * s
+  vp.offsetY = (safeTop + vp.height) / 2 - (row + 0.5) * CELL_H * s
+}
+
 /** Exit search mode */
 function exitSearchMode() {
   if (!searchMode) return
@@ -800,6 +813,10 @@ function exitSearchMode() {
   searchInput.blur()
   searchInput.value = ''
   searchHint.classList.remove('show')
+
+  exitRecenterCell = [searchCell[0], searchCell[1]]
+  centerSearchCellOnCanvas()
+  setTimeout(() => { exitRecenterCell = null }, 600)
   scheduleRender()
 }
 
@@ -905,8 +922,7 @@ function setupSearch() {
   })
 
   searchInput.addEventListener('blur', () => {
-    // Small delay to allow Enter to fire first
-    setTimeout(() => exitSearchMode(), 100)
+    exitSearchMode()
   })
 
   searchInput.addEventListener('keydown', (e) => {
